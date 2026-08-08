@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.media.projection.MediaProjectionManager
 import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -49,6 +50,44 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Call this to get the system Intent needed to request internal-audio capture permission. */
+    fun getScreenCaptureIntent(): Intent {
+        val context = getApplication<Application>()
+        val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        return manager.createScreenCaptureIntent()
+    }
+
+    /** Call after the user grants the capture permission (resultCode/data from the system dialog). */
+    fun startInternalRecording(resultCode: Int, data: Intent) {
+        val context = getApplication<Application>()
+        val intent = Intent(context, RecordingService::class.java)
+        context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        context.startForegroundService(intent)
+
+        viewModelScope.launch {
+            val sampleRate = settingsRepo.sampleRate.first()
+            val bitrate = settingsRepo.bitrate.first()
+            val stereo = settingsRepo.stereo.first()
+
+            var attempts = 0
+            while (service == null && attempts < 50) {
+                delay(20)
+                attempts++
+            }
+
+            val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = manager.getMediaProjection(resultCode, data)
+
+            val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
+            val outFile = File(recordingRepo.recordingsDir(), fileName)
+
+            service?.startInternalCapture(projection, outFile, sampleRate, bitrate, stereo)
+            _state.value = RecordingState.RECORDING
+            startTicker(fromZero = true)
+        }
+    }
+
+    /** Kept for the microphone-only fallback path (used if the device doesn't support internal capture). */
     fun startMicRecording() {
         val context = getApplication<Application>()
         val intent = Intent(context, RecordingService::class.java)
