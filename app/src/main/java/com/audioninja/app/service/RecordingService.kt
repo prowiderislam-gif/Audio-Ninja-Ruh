@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
 enum class RecordingState { IDLE, RECORDING, PAUSED }
-enum class RecordingSource { MICROPHONE, INTERNAL_AUDIO }
 
 class RecordingService : Service() {
 
@@ -26,7 +25,9 @@ class RecordingService : Service() {
     private var recorder: MediaRecorder? = null
     private var internalEngine: AudioCaptureEngine? = null
     private var mediaProjection: MediaProjection? = null
+    private var projectionCallback: MediaProjection.Callback? = null
     private var outputFile: File? = null
+    private var recordingStartTimeMs = 0L
 
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state
@@ -36,6 +37,8 @@ class RecordingService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
+
+    fun getStartTimeMs(): Long = recordingStartTimeMs
 
     fun startMicRecording(file: File, sampleRate: Int, bitrate: Int, stereo: Boolean) {
         startForegroundNotification()
@@ -55,10 +58,10 @@ class RecordingService : Service() {
     }
 
     /**
-     * Records internal/system audio only (no microphone) using AudioPlaybackCaptureConfiguration.
-     * Requires API 29+ and a MediaProjection grant obtained by the Activity via
-     * MediaProjectionManager.createScreenCaptureIntent(). Some apps (DRM-protected
-     * content, some streaming apps) opt out of capture at the OS level and cannot be recorded.
+     * Records internal/system audio only using AudioPlaybackCaptureConfiguration.
+     * Registers a MediaProjection.Callback so that if Android ends the session early
+     * (e.g. the shared app was closed, or "Share one app" scope was used), we finalize
+     * and save whatever was captured instead of losing it silently.
      */
     fun startInternalCapture(
         projection: MediaProjection,
@@ -71,6 +74,17 @@ class RecordingService : Service() {
         startForegroundNotification()
         mediaProjection = projection
         outputFile = file
+
+        val callback = object : MediaProjection.Callback() {
+            override fun onStop() {
+                if (_state.value != RecordingState.IDLE) {
+                    stop()
+                }
+            }
+        }
+        projectionCallback = callback
+        projection.registerCallback(callback, null)
+
         val engine = AudioCaptureEngine()
         internalEngine = engine
         engine.start(projection, file, sampleRate, bitrate, stereo)
@@ -105,7 +119,14 @@ class RecordingService : Service() {
         internalEngine?.stop()
         internalEngine = null
 
-        mediaProjection?.stop()
+        try {
+            projectionCallback?.let { mediaProjection?.unregisterCallback(it) }
+        } catch (_: Exception) { }
+        projectionCallback = null
+
+        try {
+            mediaProjection?.stop()
+        } catch (_: Exception) { }
         mediaProjection = null
 
         _state.value = RecordingState.IDLE
@@ -115,6 +136,7 @@ class RecordingService : Service() {
     }
 
     private fun startForegroundNotification() {
+        recordingStartTimeMs = System.currentTimeMillis()
         val openIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, openIntent,
@@ -126,6 +148,8 @@ class RecordingService : Service() {
             .setSmallIcon(android.R.drawable.presence_audio_online)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setUsesChronometer(true)
+            .setWhen(recordingStartTimeMs)
             .build()
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
