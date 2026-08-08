@@ -34,14 +34,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AudioNinjaTheme {
-                AudioNinjaApp()
+                AudioNinjaMainScreen()
             }
         }
     }
 }
 
 @Composable
-fun AudioNinjaApp() {
+fun AudioNinjaMainScreen() {
     val navController = rememberNavController()
 
     Scaffold(
@@ -83,3 +83,5 @@ fun AudioNinjaApp() {
             }
             composable("about") { AboutScreen(navController) }
         }
+    }
+}
