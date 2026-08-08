@@ -50,14 +50,12 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Call this to get the system Intent needed to request internal-audio capture permission. */
     fun getScreenCaptureIntent(): Intent {
         val context = getApplication<Application>()
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         return manager.createScreenCaptureIntent()
     }
 
-    /** Call after the user grants the capture permission (resultCode/data from the system dialog). */
     fun startInternalRecording(resultCode: Int, data: Intent) {
         val context = getApplication<Application>()
         val intent = Intent(context, RecordingService::class.java)
@@ -68,6 +66,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val sampleRate = settingsRepo.sampleRate.first()
             val bitrate = settingsRepo.bitrate.first()
             val stereo = settingsRepo.stereo.first()
+            val saveToExternal = settingsRepo.saveToExternal.first()
 
             var attempts = 0
             while (service == null && attempts < 50) {
@@ -79,7 +78,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val projection = manager.getMediaProjection(resultCode, data)
 
             val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
-            val outFile = File(recordingRepo.recordingsDir(), fileName)
+            val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
 
             service?.startInternalCapture(projection, outFile, sampleRate, bitrate, stereo)
             _state.value = RecordingState.RECORDING
@@ -87,7 +86,6 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Kept for the microphone-only fallback path (used if the device doesn't support internal capture). */
     fun startMicRecording() {
         val context = getApplication<Application>()
         val intent = Intent(context, RecordingService::class.java)
@@ -98,6 +96,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val sampleRate = settingsRepo.sampleRate.first()
             val bitrate = settingsRepo.bitrate.first()
             val stereo = settingsRepo.stereo.first()
+            val saveToExternal = settingsRepo.saveToExternal.first()
 
             var attempts = 0
             while (service == null && attempts < 50) {
@@ -106,7 +105,7 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
-            val outFile = File(recordingRepo.recordingsDir(), fileName)
+            val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
 
             service?.startMicRecording(outFile, sampleRate, bitrate, stereo)
             _state.value = RecordingState.RECORDING
