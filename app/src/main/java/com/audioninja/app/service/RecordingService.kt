@@ -28,6 +28,7 @@ class RecordingService : Service() {
     private var projectionCallback: MediaProjection.Callback? = null
     private var outputFile: File? = null
     private var recordingStartTimeMs = 0L
+    private var foregroundStarted = false
 
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state
@@ -45,6 +46,18 @@ class RecordingService : Service() {
 
     fun clearError() {
         _error.value = null
+    }
+
+    /**
+     * Must be called BEFORE MediaProjectionManager.getMediaProjection() on the caller side.
+     * Newer Android versions require the foreground service (with mediaProjection type)
+     * to already be active before the projection token itself is obtained/used — doing
+     * this in the wrong order can fail immediately. Safe to call more than once.
+     */
+    fun prepareForegroundForCapture() {
+        if (!foregroundStarted) {
+            startForegroundNotification()
+        }
     }
 
     fun startMicRecording(file: File, sampleRate: Int, bitrate: Int, stereo: Boolean) {
@@ -70,12 +83,6 @@ class RecordingService : Service() {
         }
     }
 
-    /**
-     * Records internal/system audio only. Requires API 29+, a MediaProjection grant,
-     * AND the RECORD_AUDIO permission (Android requires this even for internal-only
-     * capture, since it goes through the same AudioRecord API). If anything fails,
-     * this now reports an error instead of crashing.
-     */
     fun startInternalCapture(
         projection: MediaProjection,
         file: File,
@@ -109,7 +116,7 @@ class RecordingService : Service() {
             _error.value = null
             _state.value = RecordingState.RECORDING
         } catch (e: SecurityException) {
-            _error.value = "Microphone permission is required — Android needs it even for internal-only audio."
+            _error.value = "Permission or timing issue starting capture: ${e.message ?: "security error"}"
             cleanupAfterFailedStart()
         } catch (e: Exception) {
             _error.value = "Couldn't start internal capture: ${e.message ?: "unknown error"}"
@@ -156,6 +163,7 @@ class RecordingService : Service() {
         mediaProjection = null
 
         _state.value = RecordingState.IDLE
+        foregroundStarted = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         return outputFile
@@ -173,6 +181,7 @@ class RecordingService : Service() {
         } catch (_: Exception) { }
         mediaProjection = null
         _state.value = RecordingState.IDLE
+        foregroundStarted = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -203,6 +212,7 @@ class RecordingService : Service() {
         } else {
             startForeground(1, notification)
         }
+        foregroundStarted = true
     }
 
     companion object {
