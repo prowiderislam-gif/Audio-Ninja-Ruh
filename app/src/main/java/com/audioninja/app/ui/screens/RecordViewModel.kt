@@ -37,6 +37,9 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     private val _elapsedSeconds = MutableStateFlow(0L)
     val elapsedSeconds: StateFlow<Long> = _elapsedSeconds
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     private var tickerJob: Job? = null
 
     private val connection = object : ServiceConnection {
@@ -54,6 +57,10 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         val context = getApplication<Application>()
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         return manager.createScreenCaptureIntent()
+    }
+
+    fun clearError() {
+        _error.value = null
     }
 
     fun startInternalRecording(resultCode: Int, data: Intent) {
@@ -81,8 +88,16 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
 
             service?.startInternalCapture(projection, outFile, sampleRate, bitrate, stereo)
-            _state.value = RecordingState.RECORDING
-            startTicker(fromZero = true)
+
+            // Give the service a brief moment to either succeed or fail, then reflect
+            // its real state/error instead of optimistically assuming success.
+            delay(400)
+            val actualState = service?.state?.value ?: RecordingState.IDLE
+            _state.value = actualState
+            _error.value = service?.error?.value
+            if (actualState == RecordingState.RECORDING) {
+                startTicker(fromZero = true)
+            }
         }
     }
 
@@ -108,8 +123,14 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
             val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
 
             service?.startMicRecording(outFile, sampleRate, bitrate, stereo)
-            _state.value = RecordingState.RECORDING
-            startTicker(fromZero = true)
+
+            delay(400)
+            val actualState = service?.state?.value ?: RecordingState.IDLE
+            _state.value = actualState
+            _error.value = service?.error?.value
+            if (actualState == RecordingState.RECORDING) {
+                startTicker(fromZero = true)
+            }
         }
     }
 
