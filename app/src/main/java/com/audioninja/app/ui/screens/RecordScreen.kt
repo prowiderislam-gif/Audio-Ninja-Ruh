@@ -1,7 +1,9 @@
 package com.audioninja.app.ui.screens
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.audioninja.app.service.RecordingState
 import com.audioninja.app.ui.theme.NeonRed
@@ -29,16 +32,27 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
     val elapsed by viewModel.elapsedSeconds.collectAsState()
-    var permissionDenied by remember { mutableStateOf(false) }
+    val error by viewModel.error.collectAsState()
+
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    // Android requires RECORD_AUDIO even for internal-only capture — this is what was
+    // missing before and caused a silent crash. We ask for it first, then proceed to
+    // the screen-capture permission dialog once granted.
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasMicPermission = granted }
 
     val captureLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            permissionDenied = false
             viewModel.startInternalRecording(result.resultCode, result.data!!)
-        } else {
-            permissionDenied = true
         }
     }
 
@@ -97,12 +111,14 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
 
             FilledIconButton(
                 onClick = {
+                    viewModel.clearError()
                     when (state) {
                         RecordingState.IDLE -> {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            if (!hasMicPermission) {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                 captureLauncher.launch(viewModel.getScreenCaptureIntent())
                             } else {
-                                // Internal audio capture needs API 29+; older devices fall back to mic-only.
                                 viewModel.startMicRecording()
                             }
                         }
@@ -122,19 +138,21 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (state == RecordingState.IDLE) {
+        if (state == RecordingState.IDLE && error == null) {
             Text(
-                "Records internal audio (media, video, games). A system permission " +
-                    "dialog will appear each time you start — this is required by Android.",
+                if (!hasMicPermission)
+                    "Tap record to allow microphone access (required by Android even for internal-only capture), then confirm the screen-recording permission that follows."
+                else
+                    "Records internal audio (media, video, games). A system permission dialog will appear each time you start — this is required by Android.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
             )
         }
 
-        if (permissionDenied) {
+        if (error != null) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "Permission was denied, so recording couldn't start. Tap record and allow it to try again.",
+                error ?: "",
                 color = NeonRed,
                 style = MaterialTheme.typography.bodySmall
             )
