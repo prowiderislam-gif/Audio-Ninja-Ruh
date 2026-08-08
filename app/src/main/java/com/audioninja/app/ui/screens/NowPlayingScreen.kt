@@ -99,3 +99,32 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            IconButton(onClick = { }) {
+                Icon(Icons.Filled.FavoriteBorder, contentDescription = "Favorite")
+            }
+            IconButton(onClick = { }) {
+                Icon(Icons.Filled.Edit, contentDescription = "Rename")
+            }
+            IconButton(onClick = { }) {
+                Icon(Icons.Filled.Share, contentDescription = "Share")
+            }
+            IconButton(onClick = {
+                recording?.let { repo.delete(it) }
+                navController.popBackStack()
+            }) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+            }
+        }
+    }
+}
+
+private fun formatMs(ms: Int): String {
+    val totalSeconds = ms / 1000
+    val m = totalSeconds / 60
+    val s = totalSeconds % 60
+    return String.format("%02d:%02d", m, s)
+}
