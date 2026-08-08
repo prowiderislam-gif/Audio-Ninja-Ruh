@@ -6,27 +6,42 @@ import java.io.File
 import java.util.UUID
 
 /**
- * Scans the app's private recordings directory and builds Recording entries.
- * Favorites/folder assignment are kept in a lightweight sidecar map for now;
- * swap for Room if/when the library needs richer querying.
+ * Scans the recordings directory and builds Recording entries. Storage location is
+ * chosen by the "Save to External Storage" setting:
+ * - OFF (private): app-internal storage, not visible outside the app, cleared if the app is uninstalled
+ * - ON (external): app-specific external storage, visible via a file manager under
+ *   Android/data/com.audioninja.app/files/Recordings — no extra permission needed
  */
 class RecordingRepository(private val context: Context) {
 
-    fun recordingsDir(): File {
-        val dir = File(context.getExternalFilesDir(null), "Recordings")
+    fun recordingsDir(saveToExternal: Boolean = false): File {
+        val baseDir = if (saveToExternal) {
+            context.getExternalFilesDir(null) ?: context.filesDir
+        } else {
+            context.filesDir
+        }
+        val dir = File(baseDir, "Recordings")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
 
-    fun listRecordings(): List<Recording> {
-        val dir = recordingsDir()
+    fun storagePathDisplay(saveToExternal: Boolean): String {
+        return if (saveToExternal) {
+            "Android/data/${context.packageName}/files/Recordings (visible in Files app)"
+        } else {
+            "App private storage (only visible inside Audio Ninja)"
+        }
+    }
+
+    fun listRecordings(saveToExternal: Boolean = false): List<Recording> {
+        val dir = recordingsDir(saveToExternal)
         val files = dir.listFiles { f -> f.isFile && f.extension.lowercase() in listOf("m4a", "wav", "aac", "mp3") }
             ?: emptyArray()
 
         return files.map { file ->
             val retriever = MediaMetadataRetriever()
             var durationMs = 0L
-            var sampleRate = 48000
+            val sampleRate = 48000
             try {
                 retriever.setDataSource(file.absolutePath)
                 durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
