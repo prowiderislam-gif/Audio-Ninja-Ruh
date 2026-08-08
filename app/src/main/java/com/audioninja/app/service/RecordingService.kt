@@ -32,6 +32,9 @@ class RecordingService : Service() {
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -40,28 +43,38 @@ class RecordingService : Service() {
 
     fun getStartTimeMs(): Long = recordingStartTimeMs
 
+    fun clearError() {
+        _error.value = null
+    }
+
     fun startMicRecording(file: File, sampleRate: Int, bitrate: Int, stereo: Boolean) {
-        startForegroundNotification()
-        outputFile = file
-        recorder = MediaRecorder().apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setAudioSamplingRate(sampleRate)
-            setAudioEncodingBitRate(bitrate)
-            setAudioChannels(if (stereo) 2 else 1)
-            setOutputFile(file.absolutePath)
-            prepare()
-            start()
+        try {
+            startForegroundNotification()
+            outputFile = file
+            recorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioSamplingRate(sampleRate)
+                setAudioEncodingBitRate(bitrate)
+                setAudioChannels(if (stereo) 2 else 1)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+            _error.value = null
+            _state.value = RecordingState.RECORDING
+        } catch (e: Exception) {
+            _error.value = "Couldn't start recording: ${e.message ?: "microphone unavailable"}"
+            cleanupAfterFailedStart()
         }
-        _state.value = RecordingState.RECORDING
     }
 
     /**
-     * Records internal/system audio only using AudioPlaybackCaptureConfiguration.
-     * Registers a MediaProjection.Callback so that if Android ends the session early
-     * (e.g. the shared app was closed, or "Share one app" scope was used), we finalize
-     * and save whatever was captured instead of losing it silently.
+     * Records internal/system audio only. Requires API 29+, a MediaProjection grant,
+     * AND the RECORD_AUDIO permission (Android requires this even for internal-only
+     * capture, since it goes through the same AudioRecord API). If anything fails,
+     * this now reports an error instead of crashing.
      */
     fun startInternalCapture(
         projection: MediaProjection,
@@ -70,25 +83,38 @@ class RecordingService : Service() {
         bitrate: Int,
         stereo: Boolean
     ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        startForegroundNotification()
-        mediaProjection = projection
-        outputFile = file
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            _error.value = "Internal audio capture needs Android 10 or newer."
+            return
+        }
+        try {
+            startForegroundNotification()
+            mediaProjection = projection
+            outputFile = file
 
-        val callback = object : MediaProjection.Callback() {
-            override fun onStop() {
-                if (_state.value != RecordingState.IDLE) {
-                    stop()
+            val callback = object : MediaProjection.Callback() {
+                override fun onStop() {
+                    if (_state.value != RecordingState.IDLE) {
+                        stop()
+                    }
                 }
             }
-        }
-        projectionCallback = callback
-        projection.registerCallback(callback, null)
+            projectionCallback = callback
+            projection.registerCallback(callback, null)
 
-        val engine = AudioCaptureEngine()
-        internalEngine = engine
-        engine.start(projection, file, sampleRate, bitrate, stereo)
-        _state.value = RecordingState.RECORDING
+            val engine = AudioCaptureEngine()
+            internalEngine = engine
+            engine.start(projection, file, sampleRate, bitrate, stereo)
+
+            _error.value = null
+            _state.value = RecordingState.RECORDING
+        } catch (e: SecurityException) {
+            _error.value = "Microphone permission is required — Android needs it even for internal-only audio."
+            cleanupAfterFailedStart()
+        } catch (e: Exception) {
+            _error.value = "Couldn't start internal capture: ${e.message ?: "unknown error"}"
+            cleanupAfterFailedStart()
+        }
     }
 
     fun pause() {
@@ -133,6 +159,22 @@ class RecordingService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         return outputFile
+    }
+
+    private fun cleanupAfterFailedStart() {
+        internalEngine?.stop()
+        internalEngine = null
+        try {
+            projectionCallback?.let { mediaProjection?.unregisterCallback(it) }
+        } catch (_: Exception) { }
+        projectionCallback = null
+        try {
+            mediaProjection?.stop()
+        } catch (_: Exception) { }
+        mediaProjection = null
+        _state.value = RecordingState.IDLE
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun startForegroundNotification() {
