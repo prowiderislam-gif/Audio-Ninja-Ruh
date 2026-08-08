@@ -1,7 +1,8 @@
 package com.audioninja.app.ui.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
+import android.app.Activity
+import android.content.Intent
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -16,11 +17,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.audioninja.app.service.RecordingState
 import com.audioninja.app.ui.theme.NeonRed
@@ -31,16 +29,18 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
     val elapsed by viewModel.elapsedSeconds.collectAsState()
+    var permissionDenied by remember { mutableStateOf(false) }
 
-    var hasMicPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-        )
+    val captureLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            permissionDenied = false
+            viewModel.startInternalRecording(result.resultCode, result.data!!)
+        } else {
+            permissionDenied = true
+        }
     }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> hasMicPermission = granted }
 
     Column(
         modifier = Modifier
@@ -99,10 +99,11 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
                 onClick = {
                     when (state) {
                         RecordingState.IDLE -> {
-                            if (hasMicPermission) {
-                                viewModel.startMicRecording()
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                captureLauncher.launch(viewModel.getScreenCaptureIntent())
                             } else {
-                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                // Internal audio capture needs API 29+; older devices fall back to mic-only.
+                                viewModel.startMicRecording()
                             }
                         }
                         else -> viewModel.stop()
@@ -119,11 +120,22 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
             }
         }
 
-        if (!hasMicPermission && state == RecordingState.IDLE) {
-            Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (state == RecordingState.IDLE) {
             Text(
-                "Microphone permission is needed to record.",
+                "Records internal audio (media, video, games). A system permission " +
+                    "dialog will appear each time you start — this is required by Android.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (permissionDenied) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Permission was denied, so recording couldn't start. Tap record and allow it to try again.",
+                color = NeonRed,
                 style = MaterialTheme.typography.bodySmall
             )
         }
