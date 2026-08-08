@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.audioninja.app.data.Recording
 import com.audioninja.app.data.RecordingRepository
+import com.audioninja.app.data.SettingsRepository
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -24,7 +25,10 @@ import java.util.*
 fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) {
     val context = LocalContext.current
     val repo = remember { RecordingRepository(context) }
-    var recordings by remember { mutableStateOf(repo.listRecordings()) }
+    val settingsRepo = remember { SettingsRepository(context) }
+    val saveToExternal by settingsRepo.saveToExternal.collectAsState(initial = false)
+
+    var recordings by remember(saveToExternal) { mutableStateOf(repo.listRecordings(saveToExternal)) }
     var query by remember { mutableStateOf("") }
     val favorites = remember { mutableStateMapOf<String, Boolean>() }
 
