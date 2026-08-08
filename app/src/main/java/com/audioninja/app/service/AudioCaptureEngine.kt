@@ -29,6 +29,22 @@ class AudioCaptureEngine {
 
     @SuppressLint("MissingPermission")
     fun start(projection: MediaProjection, outputFile: File, sampleRate: Int, bitrate: Int, stereo: Boolean) {
+        try {
+            setupAndStart(projection, outputFile, sampleRate, bitrate, stereo)
+        } catch (e: Exception) {
+            releaseAll()
+            throw e
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun setupAndStart(
+        projection: MediaProjection,
+        outputFile: File,
+        sampleRate: Int,
+        bitrate: Int,
+        stereo: Boolean
+    ) {
         val channelCount = if (stereo) 2 else 1
         val channelMask = if (stereo) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
 
@@ -45,12 +61,19 @@ class AudioCaptureEngine {
             .build()
 
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelMask, AudioFormat.ENCODING_PCM_16BIT)
+        if (minBufferSize <= 0) {
+            throw IllegalStateException("Device doesn't support this audio configuration.")
+        }
 
         audioRecord = AudioRecord.Builder()
             .setAudioFormat(audioFormat)
             .setBufferSizeInBytes(minBufferSize * 2)
             .setAudioPlaybackCaptureConfig(playbackConfig)
             .build()
+
+        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            throw IllegalStateException("AudioRecord failed to initialize — permission may be missing.")
+        }
 
         val outFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channelCount).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
@@ -65,6 +88,10 @@ class AudioCaptureEngine {
         muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
         audioRecord?.startRecording()
+        if (audioRecord?.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            throw IllegalStateException("AudioRecord couldn't start — permission may be missing or denied.")
+        }
+
         encoder?.start()
         running.set(true)
         paused.set(false)
@@ -140,20 +167,32 @@ class AudioCaptureEngine {
 
     fun stop() {
         running.set(false)
-        captureThread?.join(500)
+        try {
+            captureThread?.join(500)
+        } catch (_: Exception) { }
         captureThread = null
+        releaseAll()
+    }
+
+    private fun releaseAll() {
         try {
             audioRecord?.stop()
+        } catch (_: Exception) { }
+        try {
             audioRecord?.release()
         } catch (_: Exception) { }
         audioRecord = null
         try {
             encoder?.stop()
+        } catch (_: Exception) { }
+        try {
             encoder?.release()
         } catch (_: Exception) { }
         encoder = null
         try {
             if (muxerStarted) muxer?.stop()
+        } catch (_: Exception) { }
+        try {
             muxer?.release()
         } catch (_: Exception) { }
         muxer = null
