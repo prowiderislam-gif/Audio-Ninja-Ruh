@@ -18,21 +18,18 @@ import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
 enum class RecordingState { IDLE, RECORDING, PAUSED }
+enum class RecordingSource { MICROPHONE, INTERNAL_AUDIO }
 
 class RecordingService : Service() {
 
     private val binder = LocalBinder()
     private var recorder: MediaRecorder? = null
+    private var internalEngine: AudioCaptureEngine? = null
     private var mediaProjection: MediaProjection? = null
     private var outputFile: File? = null
-    private var startTimeMs = 0L
-    private var pausedAccumMs = 0L
 
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state
-
-    private val _elapsedMs = MutableStateFlow(0L)
-    val elapsedMs: StateFlow<Long> = _elapsedMs
 
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
@@ -54,11 +51,15 @@ class RecordingService : Service() {
             prepare()
             start()
         }
-        startTimeMs = System.currentTimeMillis()
-        pausedAccumMs = 0L
         _state.value = RecordingState.RECORDING
     }
 
+    /**
+     * Records internal/system audio only (no microphone) using AudioPlaybackCaptureConfiguration.
+     * Requires API 29+ and a MediaProjection grant obtained by the Activity via
+     * MediaProjectionManager.createScreenCaptureIntent(). Some apps (DRM-protected
+     * content, some streaming apps) opt out of capture at the OS level and cannot be recorded.
+     */
     fun startInternalCapture(
         projection: MediaProjection,
         file: File,
@@ -70,8 +71,9 @@ class RecordingService : Service() {
         startForegroundNotification()
         mediaProjection = projection
         outputFile = file
-        startTimeMs = System.currentTimeMillis()
-        pausedAccumMs = 0L
+        val engine = AudioCaptureEngine()
+        internalEngine = engine
+        engine.start(projection, file, sampleRate, bitrate, stereo)
         _state.value = RecordingState.RECORDING
     }
 
@@ -80,6 +82,7 @@ class RecordingService : Service() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) recorder?.pause()
         } catch (_: Exception) { }
+        internalEngine?.pause()
         _state.value = RecordingState.PAUSED
     }
 
@@ -88,6 +91,7 @@ class RecordingService : Service() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) recorder?.resume()
         } catch (_: Exception) { }
+        internalEngine?.resume()
         _state.value = RecordingState.RECORDING
     }
 
@@ -97,8 +101,13 @@ class RecordingService : Service() {
             recorder?.release()
         } catch (_: Exception) { }
         recorder = null
+
+        internalEngine?.stop()
+        internalEngine = null
+
         mediaProjection?.stop()
         mediaProjection = null
+
         _state.value = RecordingState.IDLE
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -120,7 +129,7 @@ class RecordingService : Service() {
             .build()
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         else 0
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
