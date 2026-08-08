@@ -123,4 +123,35 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 "Microphone permission is needed to record.",
-                color = Mat
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun WaveformPlaceholder() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(48.dp)
+    ) {
+        val heights = listOf(12, 24, 40, 18, 32, 46, 20, 28, 14, 36, 22, 44)
+        heights.forEach { h ->
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(h.dp)
+                    .background(NeonRed, shape = androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+            )
+        }
+    }
+}
+
+private fun formatElapsed(totalSeconds: Long): String {
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return if (h > 0) String.format("%02d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+}
