@@ -93,4 +93,21 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
         tickerJob?.cancel()
         _elapsedSeconds.value = 0
         if (bound) {
-            g
+            getApplication<Application>().unbindService(connection)
+            bound = false
+        }
+    }
+
+    private fun startTicker(fromZero: Boolean) {
+        tickerJob?.cancel()
+        if (fromZero) _elapsedSeconds.value = 0
+        val baseElapsed = _elapsedSeconds.value
+        val resumeAt = System.currentTimeMillis()
+        tickerJob = viewModelScope.launch {
+            while (true) {
+                _elapsedSeconds.value = baseElapsed + (System.currentTimeMillis() - resumeAt) / 1000
+                delay(1000)
+            }
+        }
+    }
+}
