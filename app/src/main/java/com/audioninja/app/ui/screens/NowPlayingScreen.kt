@@ -12,19 +12,30 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.audioninja.app.data.RecordingRepository
+import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.ui.theme.NeonRed
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @Composable
 fun NowPlayingScreen(recordingId: String, navController: NavController) {
     val context = LocalContext.current
     val repo = remember { RecordingRepository(context) }
-    val recording = remember { repo.listRecordings().firstOrNull { it.id == recordingId } }
+    val settingsRepo = remember { SettingsRepository(context) }
+    val scope = rememberCoroutineScope()
+
+    var recording by remember { mutableStateOf<com.audioninja.app.data.Recording?>(null) }
+
+    LaunchedEffect(recordingId) {
+        val saveToExternal = settingsRepo.saveToExternal.first()
+        recording = repo.listRecordings(saveToExternal).firstOrNull { it.id == recordingId }
+    }
 
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0) }
-    var durationMs by remember { mutableStateOf(recording?.durationMs?.toInt() ?: 0) }
+    var durationMs by remember { mutableStateOf(0) }
 
     DisposableEffect(recording?.filePath) {
         val path = recording?.filePath
@@ -113,8 +124,10 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 Icon(Icons.Filled.Share, contentDescription = "Share")
             }
             IconButton(onClick = {
-                recording?.let { repo.delete(it) }
-                navController.popBackStack()
+                scope.launch {
+                    recording?.let { repo.delete(it) }
+                    navController.popBackStack()
+                }
             }) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete")
             }
