@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.service.FloatingBubbleService
 import kotlinx.coroutines.launch
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen() {
     val context = LocalContext.current
     val repo = remember { SettingsRepository(context) }
+    val recordingRepo = remember { RecordingRepository(context) }
     val scope = rememberCoroutineScope()
 
     val outputFormat by repo.outputFormat.collectAsState(initial = "AAC (M4A)")
@@ -65,10 +67,22 @@ fun SettingsScreen() {
             checked = recordMicWithInternal,
             onCheckedChange = { scope.launch { repo.setRecordMicWithInternal(it) } }
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Storage", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+
         SettingsSwitchRow(
             label = "Save to External Storage",
+            sublabel = "On = visible in your Files app. Off = private to this app only.",
             checked = saveToExternal,
             onCheckedChange = { scope.launch { repo.setSaveToExternal(it) } }
+        )
+        Text(
+            "Current location: ${recordingRepo.storagePathDisplay(saveToExternal)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -77,7 +91,7 @@ fun SettingsScreen() {
 
         SettingsSwitchRow(
             label = "Show Floating Bubble",
-            sublabel = "A draggable control to start/stop recording from any screen",
+            sublabel = "A draggable control with a live timer while recording",
             checked = floatingBubbleEnabled,
             onCheckedChange = { enabled ->
                 if (enabled) {
