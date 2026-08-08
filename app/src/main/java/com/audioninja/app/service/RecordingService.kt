@@ -19,14 +19,6 @@ import java.io.File
 
 enum class RecordingState { IDLE, RECORDING, PAUSED }
 
-/**
- * Handles both microphone recording (fully supported on all API 26+ devices)
- * and internal/system audio capture via AudioPlaybackCaptureConfiguration.
- *
- * Internal capture requires API 29+, an active MediaProjection grant from the
- * user, and only captures audio from apps using MEDIA/GAME/UNKNOWN usage that
- * haven't opted out (system restriction, not something the app can bypass).
- */
 class RecordingService : Service() {
 
     private val binder = LocalBinder()
@@ -67,11 +59,6 @@ class RecordingService : Service() {
         _state.value = RecordingState.RECORDING
     }
 
-    /**
-     * Starts internal audio capture. Caller must first obtain a MediaProjection
-     * grant (via MediaProjectionManager.createScreenCaptureIntent()) and pass the
-     * resulting projection here — this cannot be done from a background service alone.
-     */
     fun startInternalCapture(
         projection: MediaProjection,
         file: File,
@@ -79,4 +66,72 @@ class RecordingService : Service() {
         bitrate: Int,
         stereo: Boolean
     ) {
-        if (Build.VERSION.SDK_INT
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        startForegroundNotification()
+        mediaProjection = projection
+        outputFile = file
+        startTimeMs = System.currentTimeMillis()
+        pausedAccumMs = 0L
+        _state.value = RecordingState.RECORDING
+    }
+
+    fun pause() {
+        if (_state.value != RecordingState.RECORDING) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) recorder?.pause()
+        } catch (_: Exception) { }
+        _state.value = RecordingState.PAUSED
+    }
+
+    fun resume() {
+        if (_state.value != RecordingState.PAUSED) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) recorder?.resume()
+        } catch (_: Exception) { }
+        _state.value = RecordingState.RECORDING
+    }
+
+    fun stop(): File? {
+        try {
+            recorder?.stop()
+            recorder?.release()
+        } catch (_: Exception) { }
+        recorder = null
+        mediaProjection?.stop()
+        mediaProjection = null
+        _state.value = RecordingState.IDLE
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        return outputFile
+    }
+
+    private fun startForegroundNotification() {
+        val openIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, openIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = NotificationCompat.Builder(this, AudioNinjaApp.RECORDING_CHANNEL_ID)
+            .setContentTitle("Audio Ninja")
+            .setContentText("Recording in progress")
+            .setSmallIcon(android.R.drawable.presence_audio_online)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        else 0
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, type)
+        } else {
+            startForeground(1, notification)
+        }
+    }
+
+    companion object {
+        fun getMediaProjectionManager(context: Context): MediaProjectionManager =
+            context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    }
+}
