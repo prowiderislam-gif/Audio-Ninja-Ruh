@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.service.FloatingBubbleService
+import com.audioninja.app.ui.components.BrandBanner
 import kotlinx.coroutines.launch
 
 @Composable
@@ -33,103 +34,109 @@ fun SettingsScreen() {
 
     var showOverlayPermissionNote by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(16.dp))
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        BrandBanner()
 
-        Text("Recording Format", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Settings", style = MaterialTheme.typography.headlineSmall)
+            Spacer(modifier = Modifier.height(16.dp))
 
-        SettingsDropdownRow(
-            label = "Output Format",
-            value = outputFormat,
-            options = listOf("AAC (M4A)", "WAV", "MP3"),
-            onSelect = { scope.launch { repo.setOutputFormat(it) } }
-        )
-        SettingsDropdownRow(
-            label = "Sample Rate",
-            value = "$sampleRate Hz",
-            options = listOf("44100", "48000", "96000"),
-            onSelect = { scope.launch { repo.setSampleRate(it.toInt()) } },
-            displayTransform = { "$it Hz" }
-        )
-        SettingsDropdownRow(
-            label = "Bitrate",
-            value = "${bitrate / 1000} kbps",
-            options = listOf("128000", "192000", "256000", "320000"),
-            onSelect = { scope.launch { repo.setBitrate(it.toInt()) } },
-            displayTransform = { "${it.toInt() / 1000} kbps" }
-        )
+            Text("Recording Format", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
 
-        SettingsSwitchRow(
-            label = "Record Microphone Audio",
-            sublabel = "Layer your mic over internal audio (off = internal audio only)",
-            checked = recordMicWithInternal,
-            onCheckedChange = { scope.launch { repo.setRecordMicWithInternal(it) } }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Storage", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        SettingsSwitchRow(
-            label = "Save to External Storage",
-            sublabel = "On = visible in your Files app. Off = private to this app only.",
-            checked = saveToExternal,
-            onCheckedChange = { scope.launch { repo.setSaveToExternal(it) } }
-        )
-        Text(
-            "Current location: ${recordingRepo.storagePathDisplay(saveToExternal)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Floating Bubble", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        SettingsSwitchRow(
-            label = "Show Floating Bubble",
-            sublabel = "A draggable control with a live timer while recording",
-            checked = floatingBubbleEnabled,
-            onCheckedChange = { enabled ->
-                if (enabled) {
-                    if (Settings.canDrawOverlays(context)) {
-                        scope.launch { repo.setFloatingBubbleEnabled(true) }
-                        context.startService(Intent(context, FloatingBubbleService::class.java))
-                    } else {
-                        showOverlayPermissionNote = true
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        context.startActivity(intent)
-                    }
-                } else {
-                    scope.launch { repo.setFloatingBubbleEnabled(false) }
-                    context.stopService(Intent(context, FloatingBubbleService::class.java))
-                }
-            }
-        )
-        if (showOverlayPermissionNote) {
-            Text(
-                "Allow \"Display over other apps\" for Audio Ninja, then come back and turn this on again.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            SettingsDropdownRow(
+                label = "Output Format",
+                value = outputFormat,
+                options = listOf("AAC (M4A)", "WAV", "MP3"),
+                onSelect = { scope.launch { repo.setOutputFormat(it) } }
             )
+            SettingsDropdownRow(
+                label = "Sample Rate",
+                value = "$sampleRate Hz",
+                options = listOf("44100", "48000", "96000"),
+                onSelect = { scope.launch { repo.setSampleRate(it.toInt()) } },
+                displayTransform = { "$it Hz" }
+            )
+            SettingsDropdownRow(
+                label = "Bitrate",
+                value = "${bitrate / 1000} kbps",
+                options = listOf("128000", "192000", "256000", "320000"),
+                onSelect = { scope.launch { repo.setBitrate(it.toInt()) } },
+                displayTransform = { "${it.toInt() / 1000} kbps" }
+            )
+
+            SettingsSwitchRow(
+                label = "Record Microphone Audio",
+                sublabel = "Layer your mic over internal audio (off = internal audio only)",
+                checked = recordMicWithInternal,
+                onCheckedChange = { scope.launch { repo.setRecordMicWithInternal(it) } }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Storage", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SettingsSwitchRow(
+                label = "Save to External Storage",
+                sublabel = "On = visible in your Files app. Off = private to this app only.",
+                checked = saveToExternal,
+                onCheckedChange = { scope.launch { repo.setSaveToExternal(it) } }
+            )
+            Text(
+                "Current location: ${recordingRepo.storagePathDisplay(saveToExternal)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Floating Bubble", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SettingsSwitchRow(
+                label = "Show Floating Bubble",
+                sublabel = "A draggable control with a live timer while recording",
+                checked = floatingBubbleEnabled,
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        if (Settings.canDrawOverlays(context)) {
+                            scope.launch { repo.setFloatingBubbleEnabled(true) }
+                            context.startService(Intent(context, FloatingBubbleService::class.java))
+                        } else {
+                            showOverlayPermissionNote = true
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        }
+                    } else {
+                        scope.launch { repo.setFloatingBubbleEnabled(false) }
+                        context.stopService(Intent(context, FloatingBubbleService::class.java))
+                    }
+                }
+            )
+            if (showOverlayPermissionNote) {
+                Text(
+                    "Allow \"Display over other apps\" for Audio Ninja, then come back and turn this on again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Advanced", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SettingsSwitchRow(
+                label = "Auto Keep",
+                sublabel = "Keep recording for background",
+                checked = autoKeepBackground,
+                onCheckedChange = { scope.launch { repo.setAutoKeepBackground(it) } }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Advanced", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        SettingsSwitchRow(
-            label = "Auto Keep",
-            sublabel = "Keep recording for background",
-            checked = autoKeepBackground,
-            onCheckedChange = { scope.launch { repo.setAutoKeepBackground(it) } }
-        )
     }
 }
 
