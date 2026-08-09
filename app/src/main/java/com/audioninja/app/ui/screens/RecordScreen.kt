@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.service.RecordingState
 import com.audioninja.app.ui.theme.NeonRed
@@ -32,7 +34,7 @@ import com.audioninja.app.ui.theme.NinjaSurface
 import com.audioninja.app.ui.theme.NinjaSurfaceElevated
 
 @Composable
-fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
+fun RecordScreen(navController: NavController? = null, viewModel: RecordViewModel = viewModel()) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
     val elapsed by viewModel.elapsedSeconds.collectAsState()
@@ -64,7 +66,6 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
     ) {
         BrandBanner()
 
-        // Header: logo + name, source selector, settings gear
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -99,7 +100,14 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
             }
 
             Spacer(modifier = Modifier.width(12.dp))
-            Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "Settings",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(24.dp)
+                    .clickable { navController?.navigate("settings") }
+            )
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -146,7 +154,6 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
             Spacer(modifier = Modifier.height(48.dp))
         }
 
-        // Transport row: stop — big record — pause/resume
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
@@ -247,8 +254,7 @@ private fun WaveformPlaceholder() {
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
-
+        modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp)
     ) {
         val heights = listOf(12, 24, 40, 18, 32, 46, 20, 28, 14, 36, 22, 44, 16, 30, 42, 20)
         heights.forEach { h ->
