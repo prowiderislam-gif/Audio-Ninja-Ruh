@@ -64,72 +64,91 @@ class RecordViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startInternalRecording(resultCode: Int, data: Intent) {
-        val context = getApplication<Application>()
-        val intent = Intent(context, RecordingService::class.java)
-        context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        context.startForegroundService(intent)
-
         viewModelScope.launch {
-            val sampleRate = settingsRepo.sampleRate.first()
-            val bitrate = settingsRepo.bitrate.first()
-            val stereo = settingsRepo.stereo.first()
-            val saveToExternal = settingsRepo.saveToExternal.first()
+            try {
+                val context = getApplication<Application>()
+                val intent = Intent(context, RecordingService::class.java)
+                context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+                context.startForegroundService(intent)
 
-            var attempts = 0
-            while (service == null && attempts < 50) {
-                delay(20)
-                attempts++
-            }
+                var attempts = 0
+                while (service == null && attempts < 50) {
+                    delay(20)
+                    attempts++
+                }
+                val svc = service
+                if (svc == null) {
+                    _error.value = "Recording service didn't start in time. Please try again."
+                    return@launch
+                }
 
-            val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val projection = manager.getMediaProjection(resultCode, data)
+                // Critical order: the foreground service (with mediaProjection type) must
+                // be active BEFORE we obtain the projection token below, or newer Android
+                // versions can reject/kill it immediately.
+                svc.prepareForegroundForCapture()
+                delay(100)
 
-            val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
-            val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
+                val sampleRate = settingsRepo.sampleRate.first()
+                val bitrate = settingsRepo.bitrate.first()
+                val stereo = settingsRepo.stereo.first()
+                val saveToExternal = settingsRepo.saveToExternal.first()
 
-            service?.startInternalCapture(projection, outFile, sampleRate, bitrate, stereo)
+                val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val projection = manager.getMediaProjection(resultCode, data)
 
-            // Give the service a brief moment to either succeed or fail, then reflect
-            // its real state/error instead of optimistically assuming success.
-            delay(400)
-            val actualState = service?.state?.value ?: RecordingState.IDLE
-            _state.value = actualState
-            _error.value = service?.error?.value
-            if (actualState == RecordingState.RECORDING) {
-                startTicker(fromZero = true)
+                val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
+                val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
+
+                svc.startInternalCapture(projection, outFile, sampleRate, bitrate, stereo)
+
+                delay(400)
+                val actualState = svc.state.value
+                _state.value = actualState
+                _error.value = svc.error.value
+                if (actualState == RecordingState.RECORDING) {
+                    startTicker(fromZero = true)
+                }
+            } catch (e: Exception) {
+                _error.value = "Something went wrong starting the recording: ${e.message ?: e.javaClass.simpleName}"
+                _state.value = RecordingState.IDLE
             }
         }
     }
 
     fun startMicRecording() {
-        val context = getApplication<Application>()
-        val intent = Intent(context, RecordingService::class.java)
-        context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        context.startForegroundService(intent)
-
         viewModelScope.launch {
-            val sampleRate = settingsRepo.sampleRate.first()
-            val bitrate = settingsRepo.bitrate.first()
-            val stereo = settingsRepo.stereo.first()
-            val saveToExternal = settingsRepo.saveToExternal.first()
+            try {
+                val context = getApplication<Application>()
+                val intent = Intent(context, RecordingService::class.java)
+                context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+                context.startForegroundService(intent)
 
-            var attempts = 0
-            while (service == null && attempts < 50) {
-                delay(20)
-                attempts++
-            }
+                val sampleRate = settingsRepo.sampleRate.first()
+                val bitrate = settingsRepo.bitrate.first()
+                val stereo = settingsRepo.stereo.first()
+                val saveToExternal = settingsRepo.saveToExternal.first()
 
-            val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
-            val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
+                var attempts = 0
+                while (service == null && attempts < 50) {
+                    delay(20)
+                    attempts++
+                }
 
-            service?.startMicRecording(outFile, sampleRate, bitrate, stereo)
+                val fileName = "Recording_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.m4a"
+                val outFile = File(recordingRepo.recordingsDir(saveToExternal), fileName)
 
-            delay(400)
-            val actualState = service?.state?.value ?: RecordingState.IDLE
-            _state.value = actualState
-            _error.value = service?.error?.value
-            if (actualState == RecordingState.RECORDING) {
-                startTicker(fromZero = true)
+                service?.startMicRecording(outFile, sampleRate, bitrate, stereo)
+
+                delay(400)
+                val actualState = service?.state?.value ?: RecordingState.IDLE
+                _state.value = actualState
+                _error.value = service?.error?.value
+                if (actualState == RecordingState.RECORDING) {
+                    startTicker(fromZero = true)
+                }
+            } catch (e: Exception) {
+                _error.value = "Something went wrong starting the recording: ${e.message ?: e.javaClass.simpleName}"
+                _state.value = RecordingState.IDLE
             }
         }
     }
