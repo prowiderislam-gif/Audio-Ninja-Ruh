@@ -73,7 +73,7 @@ fun AudioNinjaMainScreen() {
             startDestination = Screen.Record.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(Screen.Record.route) { RecordScreen() }
+            composable(Screen.Record.route) { RecordScreen(navController = navController) }
             composable(Screen.Library.route) { LibraryScreen(navController) }
             composable(Screen.Favorites.route) { LibraryScreen(navController, favoritesOnly = true) }
             composable(Screen.Settings.route) { SettingsScreen() }
