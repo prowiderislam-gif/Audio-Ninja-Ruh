@@ -2,7 +2,6 @@ package com.audioninja.app.ui.screens
 
 import android.Manifest
 import android.app.Activity
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,22 +9,27 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.service.RecordingState
 import com.audioninja.app.ui.theme.NeonRed
 import com.audioninja.app.ui.theme.NinjaSurface
+import com.audioninja.app.ui.theme.NinjaSurfaceElevated
 
 @Composable
 fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
@@ -41,9 +45,6 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
         )
     }
 
-    // Android requires RECORD_AUDIO even for internal-only capture — this is what was
-    // missing before and caused a silent crash. We ask for it first, then proceed to
-    // the screen-capture permission dialog once granted.
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasMicPermission = granted }
@@ -59,55 +60,105 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .verticalScroll(rememberScrollState())
     ) {
-        Box(
-            modifier = Modifier
-                .size(220.dp)
-                .border(2.dp, NeonRed, CircleShape)
-                .background(NinjaSurface, CircleShape),
-            contentAlignment = Alignment.Center
+        BrandBanner()
+
+        // Header: logo + name, source selector, settings gear
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = formatElapsed(elapsed),
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (state != RecordingState.IDLE) {
-                    Text(
-                        text = if (state == RecordingState.RECORDING) "Recording..." else "Paused",
-                        color = NeonRed,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(NinjaSurfaceElevated, RoundedCornerShape(10.dp))
+                    .border(1.dp, NeonRed, RoundedCornerShape(10.dp))
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text("AUDIO", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text("NINJA", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = NeonRed)
             }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Row(
+                modifier = Modifier
+                    .background(NinjaSurfaceElevated, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(NeonRed, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("INTERNAL AUDIO", style = MaterialTheme.typography.labelSmall)
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+            Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+            Text(
+                "CURRENT SESSION",
+                style = MaterialTheme.typography.labelSmall,
+                color = NeonRed,
+                letterSpacing = 1.5.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                if (state == RecordingState.IDLE) "Ready for a new capture" else "Internal Capture",
+                style = MaterialTheme.typography.headlineSmall
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        Text(
+            text = formatElapsed(elapsed),
+            style = MaterialTheme.typography.displayMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        if (state != RecordingState.IDLE) {
+            Text(
+                if (state == RecordingState.RECORDING) "Recording..." else "Paused",
+                color = NeonRed,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         if (state == RecordingState.RECORDING) {
             WaveformPlaceholder()
             Spacer(modifier = Modifier.height(24.dp))
+        } else {
+            Spacer(modifier = Modifier.height(48.dp))
         }
 
+        // Transport row: stop — big record — pause/resume
         Row(
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (state != RecordingState.IDLE) {
-                FilledIconButton(
-                    onClick = { if (state == RecordingState.RECORDING) viewModel.pause() else viewModel.resume() },
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Icon(
-                        if (state == RecordingState.RECORDING) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = "Pause or resume"
-                    )
-                }
-            }
+            TransportButton(
+                icon = Icons.Filled.Stop,
+                enabled = state != RecordingState.IDLE,
+                onClick = { viewModel.stop() }
+            )
+
+            Spacer(modifier = Modifier.width(24.dp))
 
             FilledIconButton(
                 onClick = {
@@ -122,21 +173,31 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
                                 viewModel.startMicRecording()
                             }
                         }
-                        else -> viewModel.stop()
+                        else -> { /* center button only starts; use side buttons to stop/pause */ }
                     }
                 },
-                modifier = Modifier.size(80.dp),
+                modifier = Modifier.size(88.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = NeonRed)
             ) {
                 Icon(
-                    if (state == RecordingState.IDLE) Icons.Filled.PlayArrow else Icons.Filled.Stop,
-                    contentDescription = if (state == RecordingState.IDLE) "Start recording" else "Stop recording",
-                    modifier = Modifier.size(36.dp)
+                    if (state == RecordingState.IDLE) Icons.Filled.FiberManualRecord else Icons.Filled.Mic,
+                    contentDescription = "Record",
+                    modifier = Modifier.size(34.dp)
                 )
             }
+
+            Spacer(modifier = Modifier.width(24.dp))
+
+            TransportButton(
+                icon = if (state == RecordingState.PAUSED) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                enabled = state != RecordingState.IDLE,
+                onClick = {
+                    if (state == RecordingState.RECORDING) viewModel.pause() else if (state == RecordingState.PAUSED) viewModel.resume()
+                }
+            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         if (state == RecordingState.IDLE && error == null) {
             Text(
@@ -145,7 +206,9 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
                 else
                     "Records internal audio (media, video, games). A system permission dialog will appear each time you start — this is required by Android.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
 
@@ -154,9 +217,28 @@ fun RecordScreen(viewModel: RecordViewModel = viewModel()) {
             Text(
                 error ?: "",
                 color = NeonRed,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun TransportButton(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onClick: () -> Unit) {
+    FilledIconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(56.dp),
+        colors = IconButtonDefaults.filledIconButtonColors(
+            containerColor = NinjaSurfaceElevated,
+            disabledContainerColor = NinjaSurfaceElevated
+        )
+    ) {
+        Icon(icon, contentDescription = null, tint = NeonRed)
     }
 }
 
@@ -165,15 +247,16 @@ private fun WaveformPlaceholder() {
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.height(48.dp)
+        modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
+
     ) {
-        val heights = listOf(12, 24, 40, 18, 32, 46, 20, 28, 14, 36, 22, 44)
+        val heights = listOf(12, 24, 40, 18, 32, 46, 20, 28, 14, 36, 22, 44, 16, 30, 42, 20)
         heights.forEach { h ->
             Box(
                 modifier = Modifier
-                    .width(4.dp)
+                    .weight(1f)
                     .height(h.dp)
-                    .background(NeonRed, shape = androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                    .background(NeonRed, shape = RoundedCornerShape(2.dp))
             )
         }
     }
@@ -183,5 +266,5 @@ private fun formatElapsed(totalSeconds: Long): String {
     val h = totalSeconds / 3600
     val m = (totalSeconds % 3600) / 60
     val s = totalSeconds % 60
-    return if (h > 0) String.format("%02d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+    return String.format("%02d:%02d:%02d", h, m, s)
 }
