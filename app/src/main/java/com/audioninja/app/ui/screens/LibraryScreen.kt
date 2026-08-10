@@ -1,6 +1,5 @@
 package com.audioninja.app.ui.screens
 
-import android.media.MediaPlayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,7 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -23,52 +21,15 @@ import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.ui.components.AppHeaderBar
 import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.ui.theme.NeonRed
-import com.audioninja.app.ui.theme.NinjaSurfaceElevated
-import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.*
 
 @Composable
 fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) {
     val context = LocalContext.current
     val repo = remember { RecordingRepository(context) }
-    val settingsRepo = remember { SettingsRepository(context) }
-    val saveToExternal by settingsRepo.saveToExternal.collectAsState(initial = false)
 
-    var recordings by remember(saveToExternal) { mutableStateOf(repo.listRecordings(saveToExternal)) }
+    var recordings by remember { mutableStateOf(repo.listRecordings()) }
     var query by remember { mutableStateOf("") }
     val favorites = remember { mutableStateMapOf<String, Boolean>() }
-
-    var nowPlaying by remember { mutableStateOf<Recording?>(null) }
-    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
-    var isPlaying by remember { mutableStateOf(false) }
-    var positionMs by remember { mutableStateOf(0) }
-    var durationMs by remember { mutableStateOf(0) }
-
-    DisposableEffect(nowPlaying?.filePath) {
-        val path = nowPlaying?.filePath
-        val player = if (path != null) {
-            MediaPlayer().apply {
-                setDataSource(path)
-                prepare()
-                durationMs = duration
-                start()
-                isPlaying = true
-            }
-        } else null
-        mediaPlayer = player
-        onDispose {
-            player?.release()
-            mediaPlayer = null
-        }
-    }
-
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            positionMs = mediaPlayer?.currentPosition ?: 0
-            delay(500)
-        }
-    }
 
     val filtered = recordings.filter {
         it.fileName.contains(query, ignoreCase = true) &&
@@ -133,88 +94,18 @@ fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) 
                             onToggleFavorite = { favorites[recording.id] = favorites[recording.id] != true },
                             onDelete = {
                                 repo.delete(recording)
-                                recordings = repo.listRecordings(saveToExternal)
+                                recordings = repo.listRecordings()
                             },
                             onClick = {
-                                if (nowPlaying?.id == recording.id) {
-                                    navController.navigate("nowPlaying/${recording.id}")
-                                } else {
-                                    nowPlaying = recording
-                                }
+                                // Jump straight to the full-screen player every time — no
+                                // intermediate mini-player step.
+                                navController.navigate("nowPlaying/${recording.id}")
                             }
                         )
                     }
-                    item { Spacer(modifier = Modifier.height(90.dp)) }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
-        }
-    }
-
-    nowPlaying?.let { recording ->
-        MiniPlayerBar(
-            recording = recording,
-            isPlaying = isPlaying,
-            positionMs = positionMs,
-            durationMs = durationMs,
-            onPlayPause = {
-                val player = mediaPlayer ?: return@MiniPlayerBar
-                if (isPlaying) player.pause() else player.start()
-                isPlaying = !isPlaying
-            },
-            onRewind = { mediaPlayer?.seekTo((positionMs - 10000).coerceAtLeast(0)) },
-            onForward = { mediaPlayer?.seekTo((positionMs + 10000).coerceAtMost(durationMs)) },
-            onExpand = { navController.navigate("nowPlaying/${recording.id}") },
-            onClose = {
-                isPlaying = false
-                nowPlaying = null
-            }
-        )
-    }
-}
-
-@Composable
-private fun MiniPlayerBar(
-    recording: Recording,
-    isPlaying: Boolean,
-    positionMs: Int,
-    durationMs: Int,
-    onPlayPause: () -> Unit,
-    onRewind: () -> Unit,
-    onForward: () -> Unit,
-    onExpand: () -> Unit,
-    onClose: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(NinjaSurfaceElevated, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.MusicNote, contentDescription = null, tint = NeonRed)
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(recording.fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    "${formatMs(positionMs)} / ${formatMs(durationMs)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onRewind) { Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s") }
-            FilledIconButton(
-                onClick = onPlayPause,
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = NeonRed),
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = "Play/Pause")
-            }
-            IconButton(onClick = onForward) { Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s") }
-            IconButton(onClick = onExpand) { Icon(Icons.Filled.OpenInFull, contentDescription = "Expand") }
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close") }
         }
     }
 }
@@ -255,17 +146,10 @@ private fun RecordingRow(
     }
 }
 
-private fun formatMs(ms: Int): String {
-    val totalSeconds = ms / 1000
-    val m = totalSeconds / 60
-    val s = totalSeconds % 60
-    return String.format("%02d:%02d", m, s)
-}
-
 private fun formatSize(bytes: Long): String {
     val mb = bytes / (1024.0 * 1024.0)
     return String.format("%.1f MB", mb)
 }
 
 private fun formatDate(epochMs: Long): String =
-    SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(epochMs))
+    java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US).format(java.util.Date(epochMs))
