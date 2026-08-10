@@ -20,7 +20,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.res.ResourcesCompat
 import com.audioninja.app.R
 
 class FloatingBubbleService : Service() {
@@ -78,14 +77,14 @@ class FloatingBubbleService : Service() {
         val svc = recordingService
         if (svc == null) {
             tryBindToRecordingService()
-            timerText?.text = "--:--"
+            timerText?.text = "🥷"
             panelTimerText?.text = "00:00:00"
             panelStatusText?.text = "Ready to record"
             return
         }
         val state = svc.state.value
         if (state == RecordingState.IDLE) {
-            timerText?.text = "REC"
+            timerText?.text = "🥷"
             panelTimerText?.text = "00:00:00"
             panelStatusText?.text = "Ready to record"
             recordButton?.text = "Record"
@@ -104,37 +103,69 @@ class FloatingBubbleService : Service() {
         recordButton?.text = if (state == RecordingState.PAUSED) "Resume" else "Pause"
     }
 
-    // ---------- Collapsed bubble ----------
+    // ---------- Collapsed bubble: gradient glass ring with logo ----------
 
     private fun addBubble() {
-        val ring = GradientDrawable().apply {
+        val outerSize = 148
+
+        val glowRing = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            gradientRadius = outerSize / 2f
+            colors = intArrayOf(
+                Color.parseColor("#66FF2E4D"),
+                Color.parseColor("#00000000")
+            )
+        }
+
+        val glassRing = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(Color.parseColor("#1A0508"))
-            setStroke(4, Color.parseColor("#FF2E4D"))
+            setStroke(3, Color.parseColor("#FF2E4D"))
         }
 
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = ring
-            setPadding(22, 18, 22, 18)
-            gravity = Gravity.CENTER
+        val container = FrameLayout(this)
+
+        val glow = ImageView(this).apply {
+            setImageDrawable(glowRing)
+            layoutParams = FrameLayout.LayoutParams(outerSize, outerSize)
         }
 
-        val icon = TextView(this).apply {
-            text = "🥷"
-            textSize = 20f
-            gravity = Gravity.CENTER
+        val logoSize = 96
+        val logoFrame = FrameLayout(this).apply {
+            background = glassRing
+            layoutParams = FrameLayout.LayoutParams(logoSize, logoSize, Gravity.CENTER)
         }
+
+        val logoImage = ImageView(this).apply {
+            val resId = resources.getIdentifier("logo", "drawable", packageName)
+            if (resId != 0) setImageResource(resId)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = FrameLayout.LayoutParams(logoSize - 10, logoSize - 10, Gravity.CENTER)
+            clipToOutline = true
+            outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.BLACK)
+            }
+        }
+        logoFrame.addView(logoImage)
 
         val timer = TextView(this).apply {
-            text = "REC"
+            text = "🥷"
             textSize = 10f
             setTextColor(Color.parseColor("#FF2E4D"))
             gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply { bottomMargin = 2 }
         }
         timerText = timer
 
-        container.addView(icon)
+        container.addView(glow)
+        container.addView(logoFrame)
         container.addView(timer)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -191,14 +222,10 @@ class FloatingBubbleService : Service() {
         bubbleView = container
     }
 
-    // ---------- Expanded "Ninja Controls" panel ----------
+    // ---------- Expanded "Ninja Controls" panel: glass card ----------
 
     private fun toggleExpandedPanel() {
-        if (isPanelExpanded) {
-            closePanel()
-        } else {
-            openPanel()
-        }
+        if (isPanelExpanded) closePanel() else openPanel()
     }
 
     private fun openPanel() {
@@ -206,26 +233,45 @@ class FloatingBubbleService : Service() {
         isPanelExpanded = true
 
         val cardBg = GradientDrawable().apply {
-            cornerRadius = 28f
-            setColor(Color.parseColor("#12050A"))
-            setStroke(3, Color.parseColor("#FF2E4D"))
+            cornerRadius = 32f
+            gradientType = GradientDrawable.LINEAR_GRADIENT
+            orientation = GradientDrawable.Orientation.TL_BR
+            colors = intArrayOf(
+                Color.parseColor("#E6180810"),
+                Color.parseColor("#E60A0203")
+            )
+            setStroke(2, Color.parseColor("#66FF2E4D"))
         }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = cardBg
-            setPadding(36, 30, 36, 30)
+            setPadding(40, 32, 40, 32)
         }
 
         val headerRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        val logoMini = ImageView(this).apply {
+            val resId = resources.getIdentifier("logo", "drawable", packageName)
+            if (resId != 0) setImageResource(resId)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(40, 40)
+            clipToOutline = true
+            outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.BLACK)
+            }
+        }
         val title = TextView(this).apply {
-            text = "🥷 NINJA CONTROLS"
+            text = "  NINJA CONTROLS"
             setTextColor(Color.parseColor("#FF2E4D"))
             textSize = 15f
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = 10
+            }
         }
         val closeBtn = TextView(this).apply {
             text = "✕"
@@ -234,6 +280,7 @@ class FloatingBubbleService : Service() {
             setPadding(16, 0, 0, 0)
             setOnClickListener { closePanel() }
         }
+        headerRow.addView(logoMini)
         headerRow.addView(title)
         headerRow.addView(closeBtn)
 
@@ -262,7 +309,9 @@ class FloatingBubbleService : Service() {
 
         val recordBg = GradientDrawable().apply {
             cornerRadius = 40f
-            setColor(Color.parseColor("#FF2E4D"))
+            gradientType = GradientDrawable.LINEAR_GRADIENT
+            orientation = GradientDrawable.Orientation.LEFT_RIGHT
+            colors = intArrayOf(Color.parseColor("#FF2E4D"), Color.parseColor("#B0102A"))
         }
         val record = Button(this).apply {
             text = "Record"
@@ -326,7 +375,7 @@ class FloatingBubbleService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = ((bp?.x ?: 0) - 500).coerceAtLeast(0)
-            y = (bp?.y ?: 300) + 140
+            y = (bp?.y ?: 300) + 160
         }
 
         windowManager.addView(root, params)
