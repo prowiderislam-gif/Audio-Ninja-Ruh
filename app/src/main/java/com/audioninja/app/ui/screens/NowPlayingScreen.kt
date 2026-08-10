@@ -2,6 +2,13 @@ package com.audioninja.app.ui.screens
 
 import android.media.MediaPlayer
 import android.os.Build
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,11 +22,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.audioninja.app.R
 import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.ui.components.BrandBanner
@@ -42,8 +53,7 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
     var playbackSpeed by remember { mutableStateOf(1.0f) }
 
     LaunchedEffect(recordingId) {
-        val saveToExternal = settingsRepo.saveToExternal.first()
-        recording = repo.listRecordings(saveToExternal).firstOrNull { it.id == recordingId }
+        recording = repo.listRecordings().firstOrNull { it.id == recordingId }
     }
 
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
@@ -58,6 +68,8 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 setDataSource(path)
                 prepare()
                 durationMs = duration
+                start()
+                isPlaying = true
             }
         } else null
         mediaPlayer = player
@@ -72,6 +84,22 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
             positionMs = mediaPlayer?.currentPosition ?: 0
             delay(500)
         }
+    }
+
+    // Slow continuous rotation while playing; freezes in place when paused.
+    val infiniteTransition = rememberInfiniteTransition(label = "discRotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+
+    val logoResId = remember {
+        context.resources.getIdentifier("logo", "drawable", context.packageName)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -103,12 +131,25 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 .background(NinjaSurface, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Filled.MusicNote,
-                contentDescription = null,
-                tint = NeonRed,
-                modifier = Modifier.size(72.dp)
-            )
+            if (logoResId != 0) {
+                Image(
+                    painter = painterResource(id = logoResId),
+                    contentDescription = "Audio Ninja logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(6.dp)
+                        .clip(CircleShape)
+                        .rotate(if (isPlaying) rotation else 0f)
+                )
+            } else {
+                Icon(
+                    Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    tint = NeonRed,
+                    modifier = Modifier.size(72.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
