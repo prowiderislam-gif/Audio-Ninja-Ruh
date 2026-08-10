@@ -11,10 +11,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.audioninja.app.StoragePermissionActivity
 import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.service.FloatingBubbleService
 import com.audioninja.app.ui.components.BrandBanner
+import com.audioninja.app.ui.theme.NeonRed
 import kotlinx.coroutines.launch
 
 @Composable
@@ -28,11 +30,11 @@ fun SettingsScreen() {
     val sampleRate by repo.sampleRate.collectAsState(initial = 48000)
     val bitrate by repo.bitrate.collectAsState(initial = 320000)
     val recordMicWithInternal by repo.recordMicWithInternal.collectAsState(initial = false)
-    val saveToExternal by repo.saveToExternal.collectAsState(initial = false)
     val autoKeepBackground by repo.autoKeepBackground.collectAsState(initial = true)
     val floatingBubbleEnabled by repo.floatingBubbleEnabled.collectAsState(initial = false)
 
     var showOverlayPermissionNote by remember { mutableStateOf(false) }
+    var storageGranted by remember { mutableStateOf(recordingRepo.canWriteToPublicStorage()) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         BrandBanner()
@@ -76,18 +78,36 @@ fun SettingsScreen() {
             Text("Storage", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
-            SettingsSwitchRow(
-                label = "Save to External Storage",
-                sublabel = "On = visible in your Files app. Off = private to this app only.",
-                checked = saveToExternal,
-                onCheckedChange = { scope.launch { repo.setSaveToExternal(it) } }
-            )
             Text(
-                "Current location: ${recordingRepo.storagePathDisplay(saveToExternal)}",
+                "Current location: ${recordingRepo.storagePathDisplay(true)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             )
+
+            if (!storageGranted) {
+                Button(
+                    onClick = {
+                        context.startActivity(Intent(context, StoragePermissionActivity::class.java))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonRed),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Grant Storage Access (saves to Download/Audio Ninja)")
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "After allowing access in Settings, come back here — the app will detect it automatically.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    "✓ Storage access granted",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonRed
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
             Text("Floating Bubble", style = MaterialTheme.typography.titleMedium)
