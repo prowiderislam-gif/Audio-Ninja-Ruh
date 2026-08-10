@@ -2,38 +2,49 @@ package com.audioninja.app.data
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.os.Environment
 import java.io.File
 import java.util.UUID
 
 /**
- * Scans the recordings directory and builds Recording entries. Storage location is
- * chosen by the "Save to External Storage" setting:
- * - OFF (private): app-internal storage, not visible outside the app, cleared if the app is uninstalled
- * - ON (external): app-specific external storage, visible via a file manager under
- *   Android/data/com.audioninja.app/files/Recordings — no extra permission needed
+ * Recordings are saved to the public Downloads folder under "Audio Ninja" so they're
+ * visible in any file manager app — Download/Audio Ninja/. This requires the
+ * "All files access" permission on Android 11+ (requested via Settings, not a normal
+ * runtime dialog). Falls back to app-private storage if that permission isn't granted.
  */
 class RecordingRepository(private val context: Context) {
 
-    fun recordingsDir(saveToExternal: Boolean = false): File {
-        val baseDir = if (saveToExternal) {
-            context.getExternalFilesDir(null) ?: context.filesDir
+    fun recordingsDir(saveToExternal: Boolean = true): File {
+        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val targetDir = File(publicDownloads, "Audio Ninja")
+
+        val dir = if (canWriteToPublicStorage() ) {
+            targetDir
         } else {
-            context.filesDir
+            File(context.getExternalFilesDir(null) ?: context.filesDir, "Recordings")
         }
-        val dir = File(baseDir, "Recordings")
+
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
 
-    fun storagePathDisplay(saveToExternal: Boolean): String {
-        return if (saveToExternal) {
-            "Android/data/${context.packageName}/files/Recordings (visible in Files app)"
+    fun canWriteToPublicStorage(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.os.Environment.isExternalStorageManager()
         } else {
-            "App private storage (only visible inside Audio Ninja)"
+            true
         }
     }
 
-    fun listRecordings(saveToExternal: Boolean = false): List<Recording> {
+    fun storagePathDisplay(saveToExternal: Boolean): String {
+        return if (canWriteToPublicStorage()) {
+            "Download/Audio Ninja (visible in your Files app)"
+        } else {
+            "App private storage — grant \"All files access\" in Settings to save to Download/Audio Ninja instead"
+        }
+    }
+
+    fun listRecordings(saveToExternal: Boolean = true): List<Recording> {
         val dir = recordingsDir(saveToExternal)
         val files = dir.listFiles { f -> f.isFile && f.extension.lowercase() in listOf("m4a", "wav", "aac", "mp3") }
             ?: emptyArray()
