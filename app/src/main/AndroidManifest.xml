@@ -30,6 +30,12 @@
         </activity>
 
         <activity
+            android:name=".StoragePermissionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Transparent"
+            android:excludeFromRecents="true" />
+
+        <activity
             android:name=".service.BubbleTrampolineActivity"
             android:exported="false"
             android:theme="@style/Theme.Transparent"
