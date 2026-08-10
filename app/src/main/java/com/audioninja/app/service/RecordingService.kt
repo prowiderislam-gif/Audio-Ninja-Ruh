@@ -48,12 +48,6 @@ class RecordingService : Service() {
         _error.value = null
     }
 
-    /**
-     * Must be called BEFORE MediaProjectionManager.getMediaProjection() on the caller side.
-     * Newer Android versions require the foreground service (with mediaProjection type)
-     * to already be active before the projection token itself is obtained/used — doing
-     * this in the wrong order can fail immediately. Safe to call more than once.
-     */
     fun prepareForegroundForCapture() {
         if (!foregroundStarted) {
             startForegroundNotification()
