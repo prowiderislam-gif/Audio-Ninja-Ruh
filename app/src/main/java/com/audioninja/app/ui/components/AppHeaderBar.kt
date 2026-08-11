@@ -5,9 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,10 +16,7 @@ import com.audioninja.app.ui.theme.NeonRed
 import com.audioninja.app.ui.theme.NinjaSurfaceElevated
 
 @Composable
-fun AppHeaderBar(
-    sourceLabel: String = "INTERNAL AUDIO",
-    onSettingsClick: () -> Unit = {}
-) {
+fun AppHeaderBar(sourceLabel: String = "INTERNAL AUDIO") {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -53,13 +47,5 @@ fun AppHeaderBar(
             Spacer(modifier = Modifier.width(8.dp))
             Text(sourceLabel, style = MaterialTheme.typography.labelSmall)
         }
-
-        Spacer(modifier = Modifier.width(12.dp))
-        Icon(
-            Icons.Filled.Settings,
-            contentDescription = "Settings",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp)
-        )
     }
 }
