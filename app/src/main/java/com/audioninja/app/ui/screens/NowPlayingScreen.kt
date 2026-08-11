@@ -6,8 +6,8 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,26 +30,26 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.audioninja.app.R
+import com.audioninja.app.data.FavoritesRepository
 import com.audioninja.app.data.RecordingRepository
-import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.ui.theme.NeonRed
 import com.audioninja.app.ui.theme.NinjaSurface
 import com.audioninja.app.ui.theme.NinjaSurfaceElevated
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
 fun NowPlayingScreen(recordingId: String, navController: NavController) {
     val context = LocalContext.current
     val repo = remember { RecordingRepository(context) }
-    val settingsRepo = remember { SettingsRepository(context) }
+    val favoritesRepo = remember { FavoritesRepository(context) }
     val scope = rememberCoroutineScope()
 
+    val favoriteIds by favoritesRepo.favoriteIds.collectAsState(initial = emptySet())
+    val isFavorite = recordingId in favoriteIds
+
     var recording by remember { mutableStateOf<com.audioninja.app.data.Recording?>(null) }
-    var isFavorite by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableStateOf(1.0f) }
 
     LaunchedEffect(recordingId) {
@@ -86,7 +86,6 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
         }
     }
 
-    // Slow continuous rotation while playing; freezes in place when paused.
     val infiniteTransition = rememberInfiniteTransition(label = "discRotation")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -169,12 +168,7 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
 
         Spacer(modifier = Modifier.height(16.dp))
         WaveformScrubber(
-            progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
-            onSeek = { fraction ->
-                val newPos = (fraction * durationMs).toInt()
-                positionMs = newPos
-                mediaPlayer?.seekTo(newPos)
-            }
+            progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
         )
 
         Row(
@@ -248,7 +242,10 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
             ActionButton(
                 icon = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 label = "Favorite",
-                onClick = { isFavorite = !isFavorite }
+                tint = if (isFavorite) NeonRed else null,
+                onClick = {
+                    scope.launch { favoritesRepo.toggleFavorite(recordingId) }
+                }
             )
             ActionButton(icon = Icons.Filled.Edit, label = "Rename", onClick = { })
             ActionButton(icon = Icons.Filled.Share, label = "Share", onClick = { })
@@ -269,14 +266,19 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
 }
 
 @Composable
-private fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun ActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: androidx.compose.ui.graphics.Color? = null,
+    onClick: () -> Unit
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
             onClick = onClick,
             modifier = Modifier.size(52.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = NinjaSurfaceElevated)
         ) {
-            Icon(icon, contentDescription = label, tint = NeonRed)
+            Icon(icon, contentDescription = label, tint = tint ?: NeonRed)
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(label, style = MaterialTheme.typography.labelSmall)
@@ -310,7 +312,7 @@ private fun SpeedSelector(selected: Float, onSelect: (Float) -> Unit) {
 }
 
 @Composable
-private fun WaveformScrubber(progress: Float, onSeek: (Float) -> Unit) {
+private fun WaveformScrubber(progress: Float) {
     val bars = remember { List(40) { (10..46).random() } }
     Row(
         modifier = Modifier
