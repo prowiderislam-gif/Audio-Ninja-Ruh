@@ -20,16 +20,20 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.audioninja.app.R
+import com.audioninja.app.MainActivity
+import com.audioninja.app.data.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class FloatingBubbleService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var bubbleView: View? = null
     private var panelView: View? = null
+    private var removeTargetView: View? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
 
-    private var timerText: TextView? = null
     private var panelTimerText: TextView? = null
     private var panelStatusText: TextView? = null
     private var recordButton: Button? = null
@@ -37,6 +41,7 @@ class FloatingBubbleService : Service() {
     private var recordingService: RecordingService? = null
     private var boundToService = false
     private var isPanelExpanded = false
+    private var isDragging = false
 
     private val handler = Handler(Looper.getMainLooper())
     private val tickRunnable = object : Runnable {
@@ -73,18 +78,25 @@ class FloatingBubbleService : Service() {
         }
     }
 
+    private var lastKnownState: RecordingState? = null
+
     private fun updateTimerDisplays() {
         val svc = recordingService
         if (svc == null) {
             tryBindToRecordingService()
-            timerText?.text = "🥷"
             panelTimerText?.text = "00:00:00"
             panelStatusText?.text = "Ready to record"
             return
         }
         val state = svc.state.value
+
+        // Auto-collapse the panel the moment recording stops.
+        if (lastKnownState != RecordingState.IDLE && state == RecordingState.IDLE && isPanelExpanded) {
+            closePanel()
+        }
+        lastKnownState = state
+
         if (state == RecordingState.IDLE) {
-            timerText?.text = "🥷"
             panelTimerText?.text = "00:00:00"
             panelStatusText?.text = "Ready to record"
             recordButton?.text = "Record"
@@ -95,15 +107,12 @@ class FloatingBubbleService : Service() {
         val h = totalSeconds / 3600
         val m = (totalSeconds % 3600) / 60
         val s = totalSeconds % 60
-        val shortTime = String.format("%02d:%02d", m, s)
-        val longTime = String.format("%02d:%02d:%02d", h, m, s)
-        timerText?.text = shortTime
-        panelTimerText?.text = longTime
+        panelTimerText?.text = String.format("%02d:%02d:%02d", h, m, s)
         panelStatusText?.text = if (state == RecordingState.PAUSED) "Paused" else "Recording..."
         recordButton?.text = if (state == RecordingState.PAUSED) "Resume" else "Pause"
     }
 
-    // ---------- Collapsed bubble: gradient glass ring with logo ----------
+    // ---------- Collapsed bubble: gradient glass ring with logo, no emoji ----------
 
     private fun addBubble() {
         val outerSize = 148
@@ -151,22 +160,8 @@ class FloatingBubbleService : Service() {
         }
         logoFrame.addView(logoImage)
 
-        val timer = TextView(this).apply {
-            text = "🥷"
-            textSize = 10f
-            setTextColor(Color.parseColor("#FF2E4D"))
-            gravity = Gravity.CENTER
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            ).apply { bottomMargin = 2 }
-        }
-        timerText = timer
-
         container.addView(glow)
         container.addView(logoFrame)
-        container.addView(timer)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -186,6 +181,12 @@ class FloatingBubbleService : Service() {
         }
         bubbleParams = params
 
+        var longPressTriggered = false
+        val longPressRunnable = Runnable {
+            longPressTriggered = true
+            openMainApp()
+        }
+
         container.setOnTouchListener(object : View.OnTouchListener {
             var initialX = 0
             var initialY = 0
@@ -201,17 +202,42 @@ class FloatingBubbleService : Service() {
                         touchX = event.rawX
                         touchY = event.rawY
                         moved = false
+                        longPressTriggered = false
+                        handler.postDelayed(longPressRunnable, 500)
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - touchX).toInt()
                         val dy = (event.rawY - touchY).toInt()
-                        if (kotlin.math.abs(dx) > 12 || kotlin.math.abs(dy) > 12) moved = true
-                        params.x = initialX + dx
-                        params.y = initialY + dy
-                        windowManager.updateViewLayout(container, params)
+                        if (kotlin.math.abs(dx) > 12 || kotlin.math.abs(dy) > 12) {
+                            if (!moved) {
+                                moved = true
+                                handler.removeCallbacks(longPressRunnable)
+                                if (isPanelExpanded) closePanel()
+                                showRemoveTarget()
+                                isDragging = true
+                            }
+                        }
+                        if (moved) {
+                            params.x = initialX + dx
+                            params.y = initialY + dy
+                            windowManager.updateViewLayout(container, params)
+                            updateRemoveTargetHighlight(event.rawX, event.rawY)
+                        }
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!moved) toggleExpandedPanel()
+                        handler.removeCallbacks(longPressRunnable)
+                        if (isDragging) {
+                            isDragging = false
+                            val overTarget = isOverRemoveTarget(event.rawX, event.rawY)
+                            hideRemoveTarget()
+                            if (overTarget) {
+                                stopSelf()
+                                return true
+                            }
+                        } else if (!moved && !longPressTriggered) {
+                            toggleExpandedPanel()
+                        }
+                        moved = false
                     }
                 }
                 return true
@@ -220,6 +246,88 @@ class FloatingBubbleService : Service() {
 
         windowManager.addView(container, params)
         bubbleView = container
+    }
+
+    private fun openMainApp() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
+    // ---------- Drag-to-remove target ----------
+
+    private fun showRemoveTarget() {
+        if (removeTargetView != null) return
+
+        val displayMetrics = resources.displayMetrics
+        val targetSize = 180
+
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor("#CC1A0508"))
+            setStroke(3, Color.parseColor("#FF2E4D"))
+        }
+
+        val target = FrameLayout(this).apply {
+            background = bg
+        }
+        val cross = TextView(this).apply {
+            text = "✕"
+            textSize = 26f
+            setTextColor(Color.parseColor("#FF2E4D"))
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        }
+        target.addView(cross)
+
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+
+        val params = WindowManager.LayoutParams(
+            targetSize,
+            targetSize,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = 120
+        }
+
+        windowManager.addView(target, params)
+        removeTargetView = target
+    }
+
+    private fun isOverRemoveTarget(rawX: Float, rawY: Float): Boolean {
+        val target = removeTargetView ?: return false
+        val location = IntArray(2)
+        target.getLocationOnScreen(location)
+        val left = location[0]
+        val top = location[1]
+        val right = left + target.width
+        val bottom = top + target.height
+        return rawX in left.toFloat()..right.toFloat() && rawY in top.toFloat()..bottom.toFloat()
+    }
+
+    private fun updateRemoveTargetHighlight(rawX: Float, rawY: Float) {
+        val target = removeTargetView as? FrameLayout ?: return
+        val isOver = isOverRemoveTarget(rawX, rawY)
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (isOver) Color.parseColor("#FF2E4D") else Color.parseColor("#CC1A0508"))
+            setStroke(3, Color.parseColor("#FF2E4D"))
+        }
+        target.background = bg
+    }
+
+    private fun hideRemoveTarget() {
+        removeTargetView?.let {
+            try { windowManager.removeView(it) } catch (_: Exception) { }
+        }
+        removeTargetView = null
     }
 
     // ---------- Expanded "Ninja Controls" panel: glass card ----------
@@ -333,32 +441,19 @@ class FloatingBubbleService : Service() {
             text = "■"
             setTextColor(Color.parseColor("#FF2E4D"))
             background = stopBg
-            setOnClickListener { onStopButtonTapped() }
+            setOnClickListener {
+                onStopButtonTapped()
+                closePanel()
+            }
         }
 
         buttonRow.addView(record)
         buttonRow.addView(stop)
 
-        val helpText = TextView(this).apply {
-            text = "ⓘ  Floating Bubble Help & Android Info"
-            setTextColor(Color.parseColor("#B9989C"))
-            textSize = 11f
-            gravity = Gravity.CENTER
-            setPadding(0, 20, 0, 0)
-            setOnClickListener {
-                android.widget.Toast.makeText(
-                    this@FloatingBubbleService,
-                    "Android shows a system permission dialog each time internal-audio recording starts — this is required and can't be skipped.",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-
         root.addView(headerRow)
         root.addView(timer)
         root.addView(status)
         root.addView(buttonRow)
-        root.addView(helpText)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -378,16 +473,37 @@ class FloatingBubbleService : Service() {
             y = (bp?.y ?: 300) + 160
         }
 
+        // Full-screen invisible touch catcher behind the card: tapping anywhere
+        // outside the card closes it.
+        val outsideCatcher = FrameLayout(this).apply {
+            setOnClickListener { closePanel() }
+        }
+        val catcherParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+
+        windowManager.addView(outsideCatcher, catcherParams)
         windowManager.addView(root, params)
         panelView = root
+        outsideCatcherView = outsideCatcher
         updateTimerDisplays()
     }
+
+    private var outsideCatcherView: View? = null
 
     private fun closePanel() {
         panelView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) { }
         }
+        outsideCatcherView?.let {
+            try { windowManager.removeView(it) } catch (_: Exception) { }
+        }
         panelView = null
+        outsideCatcherView = null
         panelTimerText = null
         panelStatusText = null
         recordButton = null
@@ -419,8 +535,12 @@ class FloatingBubbleService : Service() {
             try { unbindService(connection) } catch (_: Exception) { }
         }
         closePanel()
+        hideRemoveTarget()
         bubbleView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) { }
+        }
+        CoroutineScope(Dispatchers.Main).launch {
+            SettingsRepository(applicationContext).setFloatingBubbleEnabled(false)
         }
     }
 }
