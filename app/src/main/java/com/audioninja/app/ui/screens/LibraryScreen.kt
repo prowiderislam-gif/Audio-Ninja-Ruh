@@ -1,10 +1,8 @@
 package com.audioninja.app.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,25 +13,29 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.audioninja.app.data.FavoritesRepository
 import com.audioninja.app.data.Recording
 import com.audioninja.app.data.RecordingRepository
-import com.audioninja.app.data.SettingsRepository
 import com.audioninja.app.ui.components.AppHeaderBar
 import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.ui.theme.NeonRed
+import kotlinx.coroutines.launch
 
 @Composable
 fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) {
     val context = LocalContext.current
     val repo = remember { RecordingRepository(context) }
+    val favoritesRepo = remember { FavoritesRepository(context) }
+    val scope = rememberCoroutineScope()
+
+    val favoriteIds by favoritesRepo.favoriteIds.collectAsState(initial = emptySet())
 
     var recordings by remember { mutableStateOf(repo.listRecordings()) }
     var query by remember { mutableStateOf("") }
-    val favorites = remember { mutableStateMapOf<String, Boolean>() }
 
     val filtered = recordings.filter {
         it.fileName.contains(query, ignoreCase = true) &&
-            (!favoritesOnly || favorites[it.id] == true)
+            (!favoritesOnly || it.id in favoriteIds)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -54,27 +56,14 @@ fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) 
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("Search recordings...") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                if (!favoritesOnly) {
-                    Spacer(modifier = Modifier.width(10.dp))
-                    FilledTonalButton(
-                        onClick = { /* folder creation: future addition */ },
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = NeonRed)
-                    ) {
-                        Icon(Icons.Filled.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("New Folder")
-                    }
-                }
-            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search recordings...") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -90,15 +79,15 @@ fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) 
                     items(filtered, key = { it.id }) { recording ->
                         RecordingRow(
                             recording = recording,
-                            isFavorite = favorites[recording.id] == true,
-                            onToggleFavorite = { favorites[recording.id] = favorites[recording.id] != true },
+                            isFavorite = recording.id in favoriteIds,
+                            onToggleFavorite = {
+                                scope.launch { favoritesRepo.toggleFavorite(recording.id) }
+                            },
                             onDelete = {
                                 repo.delete(recording)
                                 recordings = repo.listRecordings()
                             },
                             onClick = {
-                                // Jump straight to the full-screen player every time — no
-                                // intermediate mini-player step.
                                 navController.navigate("nowPlaying/${recording.id}")
                             }
                         )
@@ -136,7 +125,8 @@ private fun RecordingRow(
             IconButton(onClick = onToggleFavorite) {
                 Icon(
                     if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = "Toggle favorite"
+                    contentDescription = "Toggle favorite",
+                    tint = if (isFavorite) NeonRed else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             IconButton(onClick = onDelete) {
