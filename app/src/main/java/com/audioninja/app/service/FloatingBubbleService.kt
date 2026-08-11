@@ -34,6 +34,7 @@ class FloatingBubbleService : Service() {
     private var removeTargetView: View? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
 
+    private var timestampBadge: TextView? = null
     private var panelTimerText: TextView? = null
     private var panelStatusText: TextView? = null
     private var recordButton: Button? = null
@@ -84,35 +85,43 @@ class FloatingBubbleService : Service() {
         val svc = recordingService
         if (svc == null) {
             tryBindToRecordingService()
+            timestampBadge?.visibility = View.GONE
             panelTimerText?.text = "00:00:00"
             panelStatusText?.text = "Ready to record"
             return
         }
         val state = svc.state.value
 
-        // Auto-collapse the panel the moment recording stops.
         if (lastKnownState != RecordingState.IDLE && state == RecordingState.IDLE && isPanelExpanded) {
             closePanel()
         }
         lastKnownState = state
 
         if (state == RecordingState.IDLE) {
+            timestampBadge?.visibility = View.GONE
             panelTimerText?.text = "00:00:00"
             panelStatusText?.text = "Ready to record"
             recordButton?.text = "Record"
             return
         }
+
         val elapsedMs = (System.currentTimeMillis() - svc.getStartTimeMs()).coerceAtLeast(0)
         val totalSeconds = elapsedMs / 1000
         val h = totalSeconds / 3600
         val m = (totalSeconds % 3600) / 60
         val s = totalSeconds % 60
-        panelTimerText?.text = String.format("%02d:%02d:%02d", h, m, s)
+        val shortTime = String.format("%02d:%02d", m, s)
+        val longTime = String.format("%02d:%02d:%02d", h, m, s)
+
+        timestampBadge?.visibility = View.VISIBLE
+        timestampBadge?.text = shortTime
+
+        panelTimerText?.text = longTime
         panelStatusText?.text = if (state == RecordingState.PAUSED) "Paused" else "Recording..."
         recordButton?.text = if (state == RecordingState.PAUSED) "Resume" else "Pause"
     }
 
-    // ---------- Collapsed bubble: gradient glass ring with logo, no emoji ----------
+    // ---------- Collapsed bubble: gradient glass ring + logo + high-contrast timestamp badge ----------
 
     private fun addBubble() {
         val outerSize = 148
@@ -160,8 +169,32 @@ class FloatingBubbleService : Service() {
         }
         logoFrame.addView(logoImage)
 
+        // High-contrast timestamp badge: solid dark pill + bright red text, sits below
+        // the bubble so it reads clearly over any background or logo artwork.
+        val badgeBg = GradientDrawable().apply {
+            cornerRadius = 24f
+            setColor(Color.parseColor("#E6000000"))
+            setStroke(2, Color.parseColor("#FF2E4D"))
+        }
+        val badge = TextView(this).apply {
+            text = "00:00"
+            textSize = 11f
+            setTextColor(Color.parseColor("#FF4D68"))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            background = badgeBg
+            setPadding(14, 4, 14, 4)
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply { bottomMargin = -8 }
+        }
+        timestampBadge = badge
+
         container.addView(glow)
         container.addView(logoFrame)
+        container.addView(badge)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -260,7 +293,6 @@ class FloatingBubbleService : Service() {
     private fun showRemoveTarget() {
         if (removeTargetView != null) return
 
-        val displayMetrics = resources.displayMetrics
         val targetSize = 180
 
         val bg = GradientDrawable().apply {
@@ -473,8 +505,6 @@ class FloatingBubbleService : Service() {
             y = (bp?.y ?: 300) + 160
         }
 
-        // Full-screen invisible touch catcher behind the card: tapping anywhere
-        // outside the card closes it.
         val outsideCatcher = FrameLayout(this).apply {
             setOnClickListener { closePanel() }
         }
