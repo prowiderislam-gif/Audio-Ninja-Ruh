@@ -1,6 +1,7 @@
 package com.audioninja.app.ui.screens
 
 import android.media.MediaPlayer
+import android.media.audiofx.Visualizer
 import android.os.Build
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,6 +13,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -24,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -68,12 +72,18 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 setDataSource(path)
                 prepare()
                 durationMs = duration
+                setOnCompletionListener {
+                    isPlaying = false
+                    positionMs = 0
+                    seekTo(0)
+                }
                 start()
                 isPlaying = true
             }
         } else null
         mediaPlayer = player
         onDispose {
+            player?.stop()
             player?.release()
             mediaPlayer = null
         }
@@ -82,39 +92,106 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             positionMs = mediaPlayer?.currentPosition ?: 0
-            delay(500)
+            delay(200)
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "discRotation")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
+    // Live waveform captured from actual playback via Visualizer; falls back to a
+    // flat line if the device/API doesn't support it.
+    var waveformBars by remember { mutableStateOf(FloatArray(40) { 0.08f }) }
+
+    DisposableEffect(mediaPlayer, isPlaying) {
+        var visualizer: Visualizer? = null
+        val player = mediaPlayer
+        if (player != null && isPlaying) {
+            try {
+                visualizer = Visualizer(player.audioSessionId).apply {
+                    val captureSize = Visualizer.getCaptureSizeRange()[1]
+                    setCaptureSize(captureSize)
+                    setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                        override fun onWaveFormDataCapture(v: Visualizer?, waveform: ByteArray?, samplingRate: Int) {
+                            if (waveform != null && waveform.isNotEmpty()) {
+                                val bars = 40
+                                val step = (waveform.size / bars).coerceAtLeast(1)
+                                val newData = FloatArray(bars)
+                                for (i in 0 until bars) {
+                                    val idx = (i * step).coerceIn(0, waveform.size - 1)
+                                    val raw = (waveform[idx].toInt() and 0xFF) - 128
+                                    newData[i] = (kotlin.math.abs(raw) / 128f).coerceIn(0.06f, 1f)
+                                }
+                                waveformBars = newData
+                            }
+                        }
+                        override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, samplingRate: Int) {}
+                    }, Visualizer.getMaxCaptureRate() / 2, true, false)
+                    enabled = true
+                }
+            } catch (_: Exception) {
+                // Visualizer unsupported on this device/API — bars stay at their fallback values.
+            }
+        }
+        onDispose {
+            try { visualizer?.enabled = false; visualizer?.release() } catch (_: Exception) { }
+        }
+    }
+
+    // Disc rotation: advances only while playing, resets to 0 the instant playback
+    // pauses or finishes (not merely frozen mid-spin).
+    var rotationDeg by remember { mutableStateOf(0f) }
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            var last = System.nanoTime()
+            while (isPlaying) {
+                val now = System.nanoTime()
+                val deltaSec = (now - last) / 1_000_000_000f
+                last = now
+                rotationDeg = (rotationDeg + deltaSec * 45f) % 360f
+                delay(16)
+            }
+        } else {
+            rotationDeg = 0f
+        }
+    }
 
     val logoResId = remember {
         context.resources.getIdentifier("logo", "drawable", context.packageName)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { change, dragAmount ->
+                    if (dragAmount > 12) {
+                        change.consume()
+                        mediaPlayer?.pause()
+                        isPlaying = false
+                        navController.popBackStack()
+                    }
+                }
+            }
+    ) {
         BrandBanner()
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { navController.popBackStack() }) {
+            IconButton(onClick = {
+                mediaPlayer?.pause()
+                isPlaying = false
+                navController.popBackStack()
+            }) {
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Back")
             }
             Spacer(modifier = Modifier.weight(1f))
             Text("AUDIO NINJA PLAYER", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { navController.popBackStack() }) {
+            IconButton(onClick = {
+                mediaPlayer?.pause()
+                isPlaying = false
+                navController.popBackStack()
+            }) {
                 Icon(Icons.Filled.Close, contentDescription = "Close")
             }
         }
@@ -139,7 +216,7 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                         .fillMaxSize()
                         .padding(6.dp)
                         .clip(CircleShape)
-                        .rotate(if (isPlaying) rotation else 0f)
+                        .rotate(rotationDeg)
                 )
             } else {
                 Icon(
@@ -168,7 +245,13 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
 
         Spacer(modifier = Modifier.height(16.dp))
         WaveformScrubber(
-            progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
+            bars = waveformBars,
+            progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
+            onSeek = { fraction ->
+                val newPos = (fraction * durationMs).toInt().coerceIn(0, durationMs)
+                positionMs = newPos
+                mediaPlayer?.seekTo(newPos)
+            }
         )
 
         Row(
@@ -312,22 +395,28 @@ private fun SpeedSelector(selected: Float, onSelect: (Float) -> Unit) {
 }
 
 @Composable
-private fun WaveformScrubber(progress: Float) {
-    val bars = remember { List(40) { (10..46).random() } }
+private fun WaveformScrubber(bars: FloatArray, progress: Float, onSeek: (Float) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 20.dp)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val fraction = (offset.x / size.width).coerceIn(0f, 1f)
+                    onSeek(fraction)
+                }
+            },
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        bars.forEachIndexed { index, height ->
+        bars.forEachIndexed { index, amplitude ->
             val isPast = index.toFloat() / bars.size < progress
+            val heightDp = (10 + amplitude * 38).dp
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(height.dp)
+                    .height(heightDp)
                     .background(
                         if (isPast) NeonRed else NinjaSurfaceElevated,
                         RoundedCornerShape(2.dp)
