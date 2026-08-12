@@ -51,5 +51,10 @@
             android:name=".service.FloatingBubbleService"
             android:exported="false" />
 
+        <service
+            android:name=".service.MusicPlayerService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
     </application>
 </manifest>
