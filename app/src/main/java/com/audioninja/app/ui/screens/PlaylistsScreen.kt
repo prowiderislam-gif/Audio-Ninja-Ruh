@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -171,7 +172,7 @@ private fun PlaylistRow(
             }
             IconButton(onClick = onTogglePin) {
                 Icon(
-                    if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                    if (isPinned) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                     contentDescription = "Toggle bubble playlist",
                     tint = if (isPinned) NeonRed else MaterialTheme.colorScheme.onSurfaceVariant
                 )
