@@ -23,6 +23,7 @@ class SettingsRepository(private val context: Context) {
         val AUTO_KEEP_BACKGROUND = booleanPreferencesKey("auto_keep_background")
         val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
         val FLOATING_BUBBLE_ENABLED = booleanPreferencesKey("floating_bubble_enabled")
+        val TRIM_STARTUP_SILENCE = booleanPreferencesKey("trim_startup_silence")
     }
 
     val outputFormat: Flow<String> = context.dataStore.data.map { it[Keys.OUTPUT_FORMAT] ?: "AAC (M4A)" }
@@ -36,6 +37,8 @@ class SettingsRepository(private val context: Context) {
     val appLockEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.APP_LOCK_ENABLED] ?: false }
     val floatingBubbleEnabled: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.FLOATING_BUBBLE_ENABLED] ?: false }
+    val trimStartupSilence: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.TRIM_STARTUP_SILENCE] ?: true }
 
     suspend fun setOutputFormat(value: String) = context.dataStore.edit { it[Keys.OUTPUT_FORMAT] = value }
     suspend fun setSampleRate(value: Int) = context.dataStore.edit { it[Keys.SAMPLE_RATE] = value }
@@ -49,4 +52,6 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAppLockEnabled(value: Boolean) = context.dataStore.edit { it[Keys.APP_LOCK_ENABLED] = value }
     suspend fun setFloatingBubbleEnabled(value: Boolean) =
         context.dataStore.edit { it[Keys.FLOATING_BUBBLE_ENABLED] = value }
+    suspend fun setTrimStartupSilence(value: Boolean) =
+        context.dataStore.edit { it[Keys.TRIM_STARTUP_SILENCE] = value }
 }
