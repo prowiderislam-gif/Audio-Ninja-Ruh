@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
@@ -35,11 +36,14 @@ import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.ui.theme.NeonRed
 import com.audioninja.app.ui.theme.NinjaSurface
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 @Composable
 fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: NavController) {
     val context = LocalContext.current
     val repo = remember { PlaylistRepository(context) }
+    val scope = rememberCoroutineScope()
     val playlists by repo.playlists.collectAsState(initial = emptyList())
     val playlist = playlists.firstOrNull { it.id == playlistId }
 
@@ -70,9 +74,11 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
         }
     }
 
+    var hasStartedPlayback by remember { mutableStateOf(false) }
     LaunchedEffect(service, playlist) {
-        if (service != null && playlist != null) {
+        if (service != null && playlist != null && !hasStartedPlayback) {
             service?.playPlaylist(playlist, trackId)
+            hasStartedPlayback = true
         }
     }
 
@@ -141,12 +147,11 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
         ) {
             val track = currentTrack
             if (track?.coverPath != null) {
-                // Custom cover art, gently tinted with the app's red theme.
                 AsyncImage(
                     model = track.coverPath,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    colorFilter = ColorFilter.tint(Color(0x33FF2E4D), androidx.compose.ui.graphics.BlendMode.Overlay),
+                    colorFilter = ColorFilter.tint(Color(0x33FF2E4D), BlendMode.Overlay),
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(6.dp)
@@ -221,9 +226,10 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
             val shuffleOn = playlist?.shuffle == true
             val loopOn = playlist?.loop == true
             IconButton(onClick = {
-                playlist?.let { pl ->
-                    androidx.compose.runtime.rememberCoroutineScope()
-                }
+                val pl = playlist ?: return@IconButton
+                val newValue = !pl.shuffle
+                scope.launch { repo.setShuffle(pl.id, newValue) }
+                service?.setShuffle(newValue)
             }) {
                 Icon(
                     Icons.Filled.Shuffle,
@@ -231,7 +237,12 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
                     tint = if (shuffleOn) NeonRed else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = { }) {
+            IconButton(onClick = {
+                val pl = playlist ?: return@IconButton
+                val newValue = !pl.loop
+                scope.launch { repo.setLoop(pl.id, newValue) }
+                service?.setLoop(newValue)
+            }) {
                 Icon(
                     Icons.Filled.Repeat,
                     contentDescription = "Loop",
