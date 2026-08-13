@@ -8,6 +8,8 @@ import android.os.IBinder
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +23,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -87,11 +90,14 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
 
     var positionMs by remember { mutableStateOf(0) }
     var durationMs by remember { mutableStateOf(0) }
+    var isDraggingSeek by remember { mutableStateOf(false) }
 
-    LaunchedEffect(playbackState) {
+    LaunchedEffect(playbackState, isDraggingSeek) {
         while (playbackState == MusicPlaybackState.PLAYING) {
-            positionMs = service?.getCurrentPositionMs() ?: 0
-            durationMs = service?.getDurationMs() ?: 0
+            if (!isDraggingSeek) {
+                positionMs = service?.getCurrentPositionMs() ?: 0
+                durationMs = service?.getDurationMs() ?: 0
+            }
             delay(300)
         }
     }
@@ -116,20 +122,49 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
         context.resources.getIdentifier("logo", "drawable", context.packageName)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    fun goBackToDetail() {
+        navController.navigate("playlistDetail/$playlistId") {
+            popUpTo("playlists") { inclusive = false }
+            launchSingleTop = true
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { change, dragAmount ->
+                    if (dragAmount > 12) {
+                        change.consume()
+                        goBackToDetail()
+                    }
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    if (dragAmount < -40) {
+                        change.consume()
+                        service?.next()
+                    } else if (dragAmount > 40) {
+                        change.consume()
+                        service?.previous()
+                    }
+                }
+            }
+    ) {
         BrandBanner()
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { navController.popBackStack() }) {
+            IconButton(onClick = { goBackToDetail() }) {
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Back")
             }
             Spacer(modifier = Modifier.weight(1f))
             Text(playlist?.name ?: "Playlist", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { navController.popBackStack() }) {
+            IconButton(onClick = { goBackToDetail() }) {
                 Icon(Icons.Filled.Close, contentDescription = "Close")
             }
         }
@@ -182,6 +217,21 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
         )
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        Slider(
+            value = positionMs.toFloat().coerceIn(0f, durationMs.toFloat().coerceAtLeast(1f)),
+            onValueChange = { newVal ->
+                isDraggingSeek = true
+                positionMs = newVal.toInt()
+            },
+            onValueChangeFinished = {
+                service?.seekTo(positionMs)
+                isDraggingSeek = false
+            },
+            valueRange = 0f..durationMs.toFloat().coerceAtLeast(1f),
+            colors = SliderDefaults.colors(thumbColor = NeonRed, activeTrackColor = NeonRed),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
