@@ -13,8 +13,13 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.audioninja.app.AudioNinjaApp
 import com.audioninja.app.MainActivity
+import com.audioninja.app.data.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.io.File
 
 enum class RecordingState { IDLE, RECORDING, PAUSED }
@@ -158,9 +163,25 @@ class RecordingService : Service() {
 
         _state.value = RecordingState.IDLE
         foregroundStarted = false
+
+        val finishedFile = outputFile
+        if (finishedFile != null && finishedFile.exists()) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val shouldTrim = SettingsRepository(applicationContext).trimStartupSilence.first()
+                    if (shouldTrim) {
+                        AudioPostProcessor.trimStartupSilence(finishedFile)
+                    }
+                } catch (_: Exception) {
+                    // Trimming is a best-effort enhancement — the original recording
+                    // is never lost even if this step fails.
+                }
+            }
+        }
+
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        return outputFile
+        return finishedFile
     }
 
     private fun cleanupAfterFailedStart() {
