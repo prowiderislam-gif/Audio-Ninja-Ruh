@@ -1,8 +1,10 @@
 package com.audioninja.app.service
 
 import android.app.*
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.ServiceInfo
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
@@ -41,6 +43,23 @@ class RecordingService : Service() {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    // Bound briefly just to send a stop signal — not held long-term.
+    private var musicService: MusicPlayerService? = null
+    private var musicBound = false
+    private val musicConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            musicService = (binder as? MusicPlayerService.LocalBinder)?.getService()
+            musicService?.stop()
+            musicBound = true
+            try { unbindService(this) } catch (_: Exception) { }
+            musicBound = false
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            musicBound = false
+            musicService = null
+        }
+    }
+
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -59,7 +78,15 @@ class RecordingService : Service() {
         }
     }
 
+    /** Stops any active music playback — called right before recording starts. */
+    private fun stopAnyMusicPlayback() {
+        try {
+            bindService(Intent(this, MusicPlayerService::class.java), musicConnection, 0)
+        } catch (_: Exception) { }
+    }
+
     fun startMicRecording(file: File, sampleRate: Int, bitrate: Int, stereo: Boolean) {
+        stopAnyMusicPlayback()
         try {
             startForegroundNotification()
             outputFile = file
@@ -93,6 +120,7 @@ class RecordingService : Service() {
             _error.value = "Internal audio capture needs Android 10 or newer."
             return
         }
+        stopAnyMusicPlayback()
         try {
             startForegroundNotification()
             mediaProjection = projection
