@@ -43,17 +43,32 @@ fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) 
         AppHeaderBar()
 
         Column(modifier = Modifier.weight(1f).padding(horizontal = 20.dp)) {
-            Text(
-                "AUDIO VAULT",
-                style = MaterialTheme.typography.labelSmall,
-                color = NeonRed,
-                letterSpacing = 1.5.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                if (favoritesOnly) "Favorites" else "Recordings Library",
-                style = MaterialTheme.typography.headlineSmall
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "AUDIO VAULT",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonRed,
+                        letterSpacing = 1.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        if (favoritesOnly) "Favorites" else "Recordings Library",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                }
+                if (!favoritesOnly) {
+                    FilledTonalButton(
+                        onClick = { navController.navigate("playlists") },
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = NeonRed)
+                    ) {
+                        Icon(Icons.Filled.QueueMusic, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Playlists")
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
