@@ -12,10 +12,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.audioninja.app.ui.screens.*
 import com.audioninja.app.ui.theme.AudioNinjaTheme
 
@@ -82,6 +84,25 @@ fun AudioNinjaMainScreen() {
                 NowPlayingScreen(recordingId = id, navController = navController)
             }
             composable("about") { AboutScreen(navController) }
+            composable("playlists") { PlaylistsScreen(navController) }
+            composable(
+                "playlistDetail/{playlistId}",
+                arguments = listOf(navArgument("playlistId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString("playlistId") ?: ""
+                PlaylistDetailScreen(playlistId = id, navController = navController)
+            }
+            composable(
+                "playlistPlayer/{playlistId}/{trackId}",
+                arguments = listOf(
+                    navArgument("playlistId") { type = NavType.StringType },
+                    navArgument("trackId") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val playlistId = backStackEntry.arguments?.getString("playlistId") ?: ""
+                val trackId = backStackEntry.arguments?.getString("trackId") ?: ""
+                PlaylistPlayerScreen(playlistId = playlistId, trackId = trackId, navController = navController)
+            }
         }
     }
 }
