@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.audioninja.app.data.Playlist
 import com.audioninja.app.data.PlaylistRepository
+import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.ui.components.AppHeaderBar
 import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.ui.theme.NeonRed
@@ -25,10 +26,12 @@ import kotlinx.coroutines.launch
 fun PlaylistsScreen(navController: NavController) {
     val context = LocalContext.current
     val repo = remember { PlaylistRepository(context) }
+    val recordingRepo = remember { RecordingRepository(context) }
     val scope = rememberCoroutineScope()
 
     val playlists by repo.playlists.collectAsState(initial = emptyList())
     val pinnedIds by repo.pinnedPlaylistIds.collectAsState(initial = emptyList())
+    val recordingsCount = remember { recordingRepo.listRecordings().size }
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Playlist?>(null) }
@@ -57,15 +60,46 @@ fun PlaylistsScreen(navController: NavController) {
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (playlists.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No playlists yet — tap New to create one",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // "Recordings" is always shown first, permanently — never lost among
+                // custom playlists. It's read-only here: browse/play only, no rename
+                // or delete, since it mirrors the actual internal recordings folder.
+                item {
+                    ElevatedCard(
+                        onClick = { navController.navigate("library") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Mic, contentDescription = null, tint = NeonRed, modifier = Modifier.size(28.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Recordings", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "$recordingsCount internal recordings",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+
+                if (playlists.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No custom playlists yet — tap New to create one",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
                     items(playlists, key = { it.id }) { playlist ->
                         val isPinned = playlist.id in pinnedIds
                         PlaylistRow(
@@ -86,8 +120,8 @@ fun PlaylistsScreen(navController: NavController) {
                             onDelete = { scope.launch { repo.deletePlaylist(playlist.id) } }
                         )
                     }
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
     }
