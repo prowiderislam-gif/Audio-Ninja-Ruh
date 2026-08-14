@@ -121,7 +121,7 @@ class FloatingBubbleService : Service() {
         recordButton?.text = if (state == RecordingState.PAUSED) "Resume" else "Pause"
     }
 
-    // ---------- Collapsed bubble: gradient glass ring + logo + high-contrast timestamp badge ----------
+    // ---------- Collapsed bubble: gradient glass ring + logo + timestamp badge ----------
 
     private fun addBubble() {
         val outerSize = 148
@@ -169,8 +169,6 @@ class FloatingBubbleService : Service() {
         }
         logoFrame.addView(logoImage)
 
-        // High-contrast timestamp badge: solid dark pill + bright red text, sits below
-        // the bubble so it reads clearly over any background or logo artwork.
         val badgeBg = GradientDrawable().apply {
             cornerRadius = 24f
             setColor(Color.parseColor("#E6000000"))
@@ -267,6 +265,7 @@ class FloatingBubbleService : Service() {
                                 stopSelf()
                                 return true
                             }
+                            snapToNearestEdge(container, params)
                         } else if (!moved && !longPressTriggered) {
                             toggleExpandedPanel()
                         }
@@ -279,6 +278,35 @@ class FloatingBubbleService : Service() {
 
         windowManager.addView(container, params)
         bubbleView = container
+    }
+
+    /** Animates the bubble to whichever screen edge (left/right) it's closer to. */
+    private fun snapToNearestEdge(view: View, params: WindowManager.LayoutParams) {
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val bubbleWidth = view.width.takeIf { it > 0 } ?: 148
+        val midpoint = screenWidth / 2
+
+        val targetX = if (params.x + bubbleWidth / 2 < midpoint) 0 else screenWidth - bubbleWidth
+
+        val startX = params.x
+        val steps = 12
+        var step = 0
+        val animator = object : Runnable {
+            override fun run() {
+                step++
+                val progress = step.toFloat() / steps
+                val eased = 1 - (1 - progress) * (1 - progress) // ease-out
+                params.x = (startX + (targetX - startX) * eased).toInt()
+                try {
+                    windowManager.updateViewLayout(view, params)
+                } catch (_: Exception) {
+                    return
+                }
+                if (step < steps) handler.postDelayed(this, 12)
+            }
+        }
+        handler.post(animator)
     }
 
     private fun openMainApp() {
@@ -568,9 +596,6 @@ class FloatingBubbleService : Service() {
         hideRemoveTarget()
         bubbleView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) { }
-        }
-        CoroutineScope(Dispatchers.Main).launch {
-            SettingsRepository(applicationContext).setFloatingBubbleEnabled(false)
         }
     }
 }
