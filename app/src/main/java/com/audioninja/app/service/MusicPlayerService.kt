@@ -2,12 +2,17 @@ package com.audioninja.app.service
 
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.audioninja.app.AudioNinjaApp
 import com.audioninja.app.MainActivity
 import com.audioninja.app.data.Playlist
@@ -18,8 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 enum class MusicPlaybackState { IDLE, PLAYING, PAUSED }
 
 /**
- * Plays tracks from a Playlist. Shared by the in-app player and the floating
- * bubble's Music Mode so both stay in sync automatically.
+ * Plays tracks from a Playlist. Shows real notification controls (play/pause,
+ * skip, stop) while active, and stops cleanly if the notification is swiped away.
  */
 class MusicPlayerService : Service() {
 
@@ -46,6 +51,28 @@ class MusicPlayerService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
+
+    private val controlReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                ACTION_PLAY_PAUSE -> playPause()
+                ACTION_NEXT -> next()
+                ACTION_PREVIOUS -> previous()
+                ACTION_STOP -> stop()
+            }
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        val filter = IntentFilter().apply {
+            addAction(ACTION_PLAY_PAUSE)
+            addAction(ACTION_NEXT)
+            addAction(ACTION_PREVIOUS)
+            addAction(ACTION_STOP)
+        }
+        ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
 
     fun playPlaylist(playlist: Playlist, startTrackId: String? = null) {
         if (playlist.tracks.isEmpty()) return
@@ -138,18 +165,36 @@ class MusicPlayerService : Service() {
         startForegroundNotification(track.title)
     }
 
+    private fun broadcastPendingIntent(action: String): PendingIntent {
+        val intent = Intent(action).setPackage(packageName)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getBroadcast(this, action.hashCode(), intent, flags)
+    }
+
     private fun startForegroundNotification(trackTitle: String) {
         val openIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
+        val contentPendingIntent = PendingIntent.getActivity(
             this, 0, openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+
+        val isPlaying = mediaPlayer?.isPlaying == true
+        val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+
         val notification = NotificationCompat.Builder(this, AudioNinjaApp.RECORDING_CHANNEL_ID)
-            .setContentTitle("Audio Ninja — Music Mode")
+            .setContentTitle(currentPlaylistName.value ?: "Audio Ninja")
             .setContentText(trackTitle)
             .setSmallIcon(android.R.drawable.presence_audio_online)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
+            .setContentIntent(contentPendingIntent)
+            .setOngoing(false)
+            .setDeleteIntent(broadcastPendingIntent(ACTION_STOP))
+            .addAction(android.R.drawable.ic_media_previous, "Previous", broadcastPendingIntent(ACTION_PREVIOUS))
+            .addAction(playPauseIcon, "Play/Pause", broadcastPendingIntent(ACTION_PLAY_PAUSE))
+            .addAction(android.R.drawable.ic_media_next, "Next", broadcastPendingIntent(ACTION_NEXT))
+            .setStyle(
+                androidx.media.app.NotificationCompat.MediaStyle()
+                    .setShowActionsInCompactView(0, 1, 2)
+            )
             .build()
         startForeground(2, notification)
     }
@@ -165,5 +210,13 @@ class MusicPlayerService : Service() {
             mediaPlayer?.release()
         } catch (_: Exception) { }
         mediaPlayer = null
+        try { unregisterReceiver(controlReceiver) } catch (_: Exception) { }
+    }
+
+    companion object {
+        const val ACTION_PLAY_PAUSE = "com.audioninja.app.MUSIC_PLAY_PAUSE"
+        const val ACTION_NEXT = "com.audioninja.app.MUSIC_NEXT"
+        const val ACTION_PREVIOUS = "com.audioninja.app.MUSIC_PREVIOUS"
+        const val ACTION_STOP = "com.audioninja.app.MUSIC_STOP"
     }
 }
