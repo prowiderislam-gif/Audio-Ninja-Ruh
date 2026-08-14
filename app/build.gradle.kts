@@ -53,6 +53,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("androidx.media:media:1.7.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
