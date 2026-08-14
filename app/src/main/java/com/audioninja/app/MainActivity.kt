@@ -1,6 +1,8 @@
 package com.audioninja.app
 
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -10,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -18,8 +21,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.audioninja.app.data.SettingsRepository
+import com.audioninja.app.service.FloatingBubbleService
 import com.audioninja.app.ui.screens.*
 import com.audioninja.app.ui.theme.AudioNinjaTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     object Record : Screen("record", "Record", Icons.Filled.Mic)
@@ -38,6 +45,22 @@ class MainActivity : ComponentActivity() {
             AudioNinjaTheme {
                 AudioNinjaMainScreen()
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // App is going to background (minimized, or user switched away) — bring
+        // the bubble back if the user has it enabled in Settings, so it's never
+        // permanently gone just because it was dragged off once.
+        lifecycleScope.launch {
+            try {
+                val settingsRepo = SettingsRepository(applicationContext)
+                val enabled = settingsRepo.floatingBubbleEnabled.first()
+                if (enabled && Settings.canDrawOverlays(applicationContext)) {
+                    startService(Intent(applicationContext, FloatingBubbleService::class.java))
+                }
+            } catch (_: Exception) { }
         }
     }
 }
