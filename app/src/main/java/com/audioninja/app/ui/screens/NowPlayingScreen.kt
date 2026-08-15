@@ -13,6 +13,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.audioninja.app.data.FavoritesRepository
+import com.audioninja.app.data.Recording
 import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.ui.components.BrandBanner
 import com.audioninja.app.ui.theme.NeonRed
@@ -44,21 +46,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun NowPlayingScreen(recordingId: String, navController: NavController) {
+fun NowPlayingScreen(recordingId: String, source: String = "library", navController: NavController) {
     val context = LocalContext.current
     val repo = remember { RecordingRepository(context) }
     val favoritesRepo = remember { FavoritesRepository(context) }
     val scope = rememberCoroutineScope()
 
     val favoriteIds by favoritesRepo.favoriteIds.collectAsState(initial = emptySet())
-    val isFavorite = recordingId in favoriteIds
 
-    var recording by remember { mutableStateOf<com.audioninja.app.data.Recording?>(null) }
+    val allRecordings = remember { repo.listRecordings() }
+    var currentId by remember { mutableStateOf(recordingId) }
+    val recording = allRecordings.firstOrNull { it.id == currentId }
+    val isFavorite = currentId in favoriteIds
+
     var playbackSpeed by remember { mutableStateOf(1.0f) }
-
-    LaunchedEffect(recordingId) {
-        recording = repo.listRecordings().firstOrNull { it.id == recordingId }
-    }
 
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -96,8 +97,6 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
         }
     }
 
-    // Live waveform captured from actual playback via Visualizer; falls back to a
-    // flat line if the device/API doesn't support it.
     var waveformBars by remember { mutableStateOf(FloatArray(40) { 0.08f }) }
 
     DisposableEffect(mediaPlayer, isPlaying) {
@@ -126,17 +125,13 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                     }, Visualizer.getMaxCaptureRate() / 2, true, false)
                     enabled = true
                 }
-            } catch (_: Exception) {
-                // Visualizer unsupported on this device/API — bars stay at their fallback values.
-            }
+            } catch (_: Exception) { }
         }
         onDispose {
             try { visualizer?.enabled = false; visualizer?.release() } catch (_: Exception) { }
         }
     }
 
-    // Disc rotation: advances only while playing, resets to 0 the instant playback
-    // pauses or finishes (not merely frozen mid-spin).
     var rotationDeg by remember { mutableStateOf(0f) }
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
@@ -157,6 +152,32 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
         context.resources.getIdentifier("logo", "drawable", context.packageName)
     }
 
+    fun goBackToSource() {
+        mediaPlayer?.pause()
+        isPlaying = false
+        if (source == "favorites") {
+            navController.popBackStack()
+        } else {
+            navController.popBackStack()
+        }
+    }
+
+    fun playNext() {
+        if (allRecordings.isEmpty()) return
+        val idx = allRecordings.indexOfFirst { it.id == currentId }
+        if (idx >= 0 && idx + 1 < allRecordings.size) {
+            currentId = allRecordings[idx + 1].id
+        }
+    }
+
+    fun playPrevious() {
+        if (allRecordings.isEmpty()) return
+        val idx = allRecordings.indexOfFirst { it.id == currentId }
+        if (idx > 0) {
+            currentId = allRecordings[idx - 1].id
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -164,9 +185,18 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 detectVerticalDragGestures { change, dragAmount ->
                     if (dragAmount > 12) {
                         change.consume()
-                        mediaPlayer?.pause()
-                        isPlaying = false
-                        navController.popBackStack()
+                        goBackToSource()
+                    }
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    if (dragAmount < -40) {
+                        change.consume()
+                        playNext()
+                    } else if (dragAmount > 40) {
+                        change.consume()
+                        playPrevious()
                     }
                 }
             }
@@ -177,21 +207,13 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = {
-                mediaPlayer?.pause()
-                isPlaying = false
-                navController.popBackStack()
-            }) {
+            IconButton(onClick = { goBackToSource() }) {
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Back")
             }
             Spacer(modifier = Modifier.weight(1f))
             Text("AUDIO NINJA PLAYER", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = {
-                mediaPlayer?.pause()
-                isPlaying = false
-                navController.popBackStack()
-            }) {
+            IconButton(onClick = { goBackToSource() }) {
                 Icon(Icons.Filled.Close, contentDescription = "Close")
             }
         }
@@ -287,7 +309,7 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { /* previous recording: future addition */ }) {
+            IconButton(onClick = { playPrevious() }) {
                 Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
             }
             IconButton(onClick = { mediaPlayer?.seekTo((positionMs - 10000).coerceAtLeast(0)) }) {
@@ -311,7 +333,7 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
             IconButton(onClick = { mediaPlayer?.seekTo((positionMs + 10000).coerceAtMost(durationMs)) }) {
                 Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
             }
-            IconButton(onClick = { /* next recording: future addition */ }) {
+            IconButton(onClick = { playNext() }) {
                 Icon(Icons.Filled.SkipNext, contentDescription = "Next")
             }
         }
@@ -327,7 +349,7 @@ fun NowPlayingScreen(recordingId: String, navController: NavController) {
                 label = "Favorite",
                 tint = if (isFavorite) NeonRed else null,
                 onClick = {
-                    scope.launch { favoritesRepo.toggleFavorite(recordingId) }
+                    scope.launch { favoritesRepo.toggleFavorite(currentId) }
                 }
             )
             ActionButton(icon = Icons.Filled.Edit, label = "Rename", onClick = { })
