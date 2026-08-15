@@ -62,6 +62,26 @@ fun PlaylistDetailScreen(playlistId: String, navController: NavController) {
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f)
             )
+            IconButton(onClick = {
+                val pl = playlist ?: return@IconButton
+                scope.launch { repo.setShuffle(pl.id, !pl.shuffle) }
+            }) {
+                Icon(
+                    Icons.Filled.Shuffle,
+                    contentDescription = "Shuffle",
+                    tint = if (playlist?.shuffle == true) NeonRed else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = {
+                val pl = playlist ?: return@IconButton
+                scope.launch { repo.setLoop(pl.id, !pl.loop) }
+            }) {
+                Icon(
+                    Icons.Filled.Repeat,
+                    contentDescription = "Loop",
+                    tint = if (playlist?.loop == true) NeonRed else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         Row(
