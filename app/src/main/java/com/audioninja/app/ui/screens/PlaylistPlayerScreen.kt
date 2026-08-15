@@ -90,14 +90,11 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
 
     var positionMs by remember { mutableStateOf(0) }
     var durationMs by remember { mutableStateOf(0) }
-    var isDraggingSeek by remember { mutableStateOf(false) }
 
-    LaunchedEffect(playbackState, isDraggingSeek) {
+    LaunchedEffect(playbackState) {
         while (playbackState == MusicPlaybackState.PLAYING) {
-            if (!isDraggingSeek) {
-                positionMs = service?.getCurrentPositionMs() ?: 0
-                durationMs = service?.getDurationMs() ?: 0
-            }
+            positionMs = service?.getCurrentPositionMs() ?: 0
+            durationMs = service?.getDurationMs() ?: 0
             delay(300)
         }
     }
@@ -220,14 +217,8 @@ fun PlaylistPlayerScreen(playlistId: String, trackId: String, navController: Nav
 
         Slider(
             value = positionMs.toFloat().coerceIn(0f, durationMs.toFloat().coerceAtLeast(1f)),
-            onValueChange = { newVal ->
-                isDraggingSeek = true
-                positionMs = newVal.toInt()
-            },
-            onValueChangeFinished = {
-                service?.seekTo(positionMs)
-                isDraggingSeek = false
-            },
+            onValueChange = { newVal -> positionMs = newVal.toInt() },
+            onValueChangeFinished = { service?.seekTo(positionMs) },
             valueRange = 0f..durationMs.toFloat().coerceAtLeast(1f),
             colors = SliderDefaults.colors(thumbColor = NeonRed, activeTrackColor = NeonRed),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
