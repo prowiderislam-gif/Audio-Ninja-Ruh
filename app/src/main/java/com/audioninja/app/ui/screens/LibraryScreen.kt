@@ -38,6 +38,8 @@ fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) 
             (!favoritesOnly || it.id in favoriteIds)
     }
 
+    val sourceTag = if (favoritesOnly) "favorites" else "library"
+
     Column(modifier = Modifier.fillMaxSize()) {
         BrandBanner()
         AppHeaderBar()
@@ -103,7 +105,7 @@ fun LibraryScreen(navController: NavController, favoritesOnly: Boolean = false) 
                                 recordings = repo.listRecordings()
                             },
                             onClick = {
-                                navController.navigate("nowPlaying/${recording.id}")
+                                navController.navigate("nowPlaying/${recording.id}?source=$sourceTag")
                             }
                         )
                     }
