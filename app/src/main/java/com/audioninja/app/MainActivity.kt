@@ -1,17 +1,24 @@
 package com.audioninja.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -50,9 +57,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // App is going to background (minimized, or user switched away) — bring
-        // the bubble back if the user has it enabled in Settings, so it's never
-        // permanently gone just because it was dragged off once.
         lifecycleScope.launch {
             try {
                 val settingsRepo = SettingsRepository(applicationContext)
@@ -68,6 +72,22 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AudioNinjaMainScreen() {
     val navController = rememberNavController()
+    val context = LocalContext.current
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* result not needed here; notifications just won't show if denied */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -102,9 +122,16 @@ fun AudioNinjaMainScreen() {
             composable(Screen.Library.route) { LibraryScreen(navController) }
             composable(Screen.Favorites.route) { LibraryScreen(navController, favoritesOnly = true) }
             composable(Screen.Settings.route) { SettingsScreen() }
-            composable("nowPlaying/{recordingId}") { backStackEntry ->
+            composable(
+                "nowPlaying/{recordingId}?source={source}",
+                arguments = listOf(
+                    navArgument("recordingId") { type = NavType.StringType },
+                    navArgument("source") { type = NavType.StringType; defaultValue = "library" }
+                )
+            ) { backStackEntry ->
                 val id = backStackEntry.arguments?.getString("recordingId") ?: ""
-                NowPlayingScreen(recordingId = id, navController = navController)
+                val source = backStackEntry.arguments?.getString("source") ?: "library"
+                NowPlayingScreen(recordingId = id, source = source, navController = navController)
             }
             composable("about") { AboutScreen(navController) }
             composable("playlists") { PlaylistsScreen(navController) }
