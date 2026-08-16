@@ -21,9 +21,9 @@ import android.widget.TextView
 import com.audioninja.app.MainActivity
 import com.audioninja.app.data.Playlist
 import com.audioninja.app.data.PlaylistRepository
-import com.audioninja.app.data.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 enum class BubbleMode { RECORDING, MUSIC }
@@ -98,19 +98,25 @@ class FloatingBubbleService : Service() {
             try {
                 val ids = playlistRepo.pinnedPlaylistIds.first()
                 val all = playlistRepo.playlists.first()
-                pinnedPlaylists = ids.mapNotNull { id -> all.firstOrNull { it.id == id } }
+                pinnedPlaylists = ids.mapNotNull { id -> all.firstOrNull { pl -> pl.id == id } }
             } catch (_: Exception) { }
         }
     }
 
     // ---------- Main bubble (your uploaded image, swaps per mode) ----------
 
+    private fun refreshBubbleImage() {
+        val name = if (currentMode == BubbleMode.MUSIC) "music_mode_bubble" else "record_mode_bubble"
+        val resId = resources.getIdentifier(name, "drawable", packageName)
+        if (resId != 0) bubbleView?.setImageResource(resId)
+    }
+
     private fun addBubble() {
         val bubbleSize = 150
 
-        val imageView = ImageView(this).apply {
-            setBubbleImageForMode()
-        }
+        val imageView = ImageView(this)
+        bubbleView = imageView
+        refreshBubbleImage()
 
         val badgeBg = GradientDrawable().apply {
             cornerRadius = 24f
@@ -224,13 +230,6 @@ class FloatingBubbleService : Service() {
 
         windowManager.addView(imageView, params)
         windowManager.addView(badge, badgeP)
-        bubbleView = imageView
-    }
-
-    private fun ImageView.setBubbleImageForMode() {
-        val name = if (currentMode == BubbleMode.MUSIC) "music_mode_bubble" else "record_mode_bubble"
-        val resId = resources.getIdentifier(name, "drawable", packageName)
-        if (resId != 0) setImageResource(resId)
     }
 
     private fun syncBadgePosition() {
@@ -295,7 +294,6 @@ class FloatingBubbleService : Service() {
         arcButtons.clear()
 
         val radius = 260
-        // Arc spans roughly from top to bottom on whichever side has open space.
         val angles = if (onLeftEdge)
             listOf(-60.0, -20.0, 20.0, 60.0)
         else
@@ -306,8 +304,7 @@ class FloatingBubbleService : Service() {
             val startOrPause = if (svc?.state?.value == RecordingState.RECORDING) "pause_record_key" else "start_record_key"
             listOf(startOrPause, "stop_record_key", "music_switch_key")
         } else {
-            val names = pinnedPlaylists.take(3).map { "playlist_slot" }
-            names + "record_switch_key"
+            listOf("playlist_slot", "playlist_slot", "playlist_slot", "record_switch_key")
         }
 
         buttonNames.forEachIndexed { index, drawableName ->
@@ -316,9 +313,7 @@ class FloatingBubbleService : Service() {
             val offsetX = (radius * kotlin.math.cos(angleRad)).toInt()
             val offsetY = (radius * kotlin.math.sin(angleRad)).toInt()
 
-            val actualDrawable = if (drawableName == "playlist_slot") {
-                "playlist${index + 1}_key"
-            } else drawableName
+            val actualDrawable = if (drawableName == "playlist_slot") "playlist${index + 1}_key" else drawableName
 
             val button = BubbleArcButton(this, windowManager, actualDrawable, sizePx = 130)
             val targetX = bubbleCenterX + (if (onLeftEdge) offsetX else -offsetX)
@@ -371,14 +366,14 @@ class FloatingBubbleService : Service() {
 
     private fun switchToMusicMode() {
         currentMode = BubbleMode.MUSIC
-        bubbleView?.setBubbleImageForMode()
+        refreshBubbleImage()
         collapseMenu()
         loadPinnedPlaylists()
     }
 
     private fun switchToRecordingMode() {
         currentMode = BubbleMode.RECORDING
-        bubbleView?.setBubbleImageForMode()
+        refreshBubbleImage()
         collapseMenu()
         musicService?.stop()
     }
