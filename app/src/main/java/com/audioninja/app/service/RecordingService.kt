@@ -35,6 +35,8 @@ class RecordingService : Service() {
     private var projectionCallback: MediaProjection.Callback? = null
     private var outputFile: File? = null
     private var recordingStartTimeMs = 0L
+    private var pausedAccumMs = 0L
+    private var pauseStartedAtMs = 0L
     private var foregroundStarted = false
 
     private val _state = MutableStateFlow(RecordingState.IDLE)
@@ -43,7 +45,6 @@ class RecordingService : Service() {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    // Bound briefly just to send a stop signal — not held long-term.
     private var musicService: MusicPlayerService? = null
     private var musicBound = false
     private val musicConnection = object : ServiceConnection {
@@ -68,6 +69,18 @@ class RecordingService : Service() {
 
     fun getStartTimeMs(): Long = recordingStartTimeMs
 
+    /**
+     * Elapsed recording time that correctly freezes while paused and resumes
+     * accurately — the single source of truth both the app screen and the
+     * floating bubble should read from, so they can never drift apart.
+     */
+    fun getElapsedMs(): Long {
+        if (_state.value == RecordingState.IDLE) return 0L
+        val now = System.currentTimeMillis()
+        val pausedSoFar = pausedAccumMs + if (_state.value == RecordingState.PAUSED) (now - pauseStartedAtMs) else 0L
+        return (now - recordingStartTimeMs - pausedSoFar).coerceAtLeast(0L)
+    }
+
     fun clearError() {
         _error.value = null
     }
@@ -78,7 +91,6 @@ class RecordingService : Service() {
         }
     }
 
-    /** Stops any active music playback — called right before recording starts. */
     private fun stopAnyMusicPlayback() {
         try {
             bindService(Intent(this, MusicPlayerService::class.java), musicConnection, 0)
@@ -157,6 +169,7 @@ class RecordingService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) recorder?.pause()
         } catch (_: Exception) { }
         internalEngine?.pause()
+        pauseStartedAtMs = System.currentTimeMillis()
         _state.value = RecordingState.PAUSED
     }
 
@@ -166,6 +179,7 @@ class RecordingService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) recorder?.resume()
         } catch (_: Exception) { }
         internalEngine?.resume()
+        pausedAccumMs += System.currentTimeMillis() - pauseStartedAtMs
         _state.value = RecordingState.RECORDING
     }
 
@@ -191,6 +205,8 @@ class RecordingService : Service() {
 
         _state.value = RecordingState.IDLE
         foregroundStarted = false
+        pausedAccumMs = 0L
+        pauseStartedAtMs = 0L
 
         val finishedFile = outputFile
         if (finishedFile != null && finishedFile.exists()) {
@@ -200,10 +216,7 @@ class RecordingService : Service() {
                     if (shouldTrim) {
                         AudioPostProcessor.trimStartupSilence(finishedFile)
                     }
-                } catch (_: Exception) {
-                    // Trimming is a best-effort enhancement — the original recording
-                    // is never lost even if this step fails.
-                }
+                } catch (_: Exception) { }
             }
         }
 
@@ -225,12 +238,15 @@ class RecordingService : Service() {
         mediaProjection = null
         _state.value = RecordingState.IDLE
         foregroundStarted = false
+        pausedAccumMs = 0L
+        pauseStartedAtMs = 0L
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun startForegroundNotification() {
         recordingStartTimeMs = System.currentTimeMillis()
+        pausedAccumMs = 0L
         val openIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, openIntent,
