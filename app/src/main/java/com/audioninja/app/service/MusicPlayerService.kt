@@ -9,10 +9,12 @@ import android.content.IntentFilter
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Binder
-import android.os.Build
 import android.os.IBinder
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import com.audioninja.app.AudioNinjaApp
 import com.audioninja.app.MainActivity
 import com.audioninja.app.data.Playlist
@@ -23,13 +25,15 @@ import kotlinx.coroutines.flow.StateFlow
 enum class MusicPlaybackState { IDLE, PLAYING, PAUSED }
 
 /**
- * Plays tracks from a Playlist. Shows real notification controls (play/pause,
- * skip, stop) while active, and stops cleanly if the notification is swiped away.
+ * Plays tracks from a Playlist. Uses a real MediaSession so the notification
+ * renders with the system's standard, bigger media-control buttons instead of
+ * small custom icons — the same style Spotify/YouTube Music use.
  */
 class MusicPlayerService : Service() {
 
     private val binder = LocalBinder()
     private var mediaPlayer: MediaPlayer? = null
+    private lateinit var mediaSession: MediaSessionCompat
 
     private var currentPlaylist: Playlist? = null
     private var queue: List<PlaylistTrack> = emptyList()
@@ -65,6 +69,18 @@ class MusicPlayerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        mediaSession = MediaSessionCompat(this, "AudioNinjaMusicSession").apply {
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() { playPause() }
+                override fun onPause() { playPause() }
+                override fun onSkipToNext() { next() }
+                override fun onSkipToPrevious() { previous() }
+                override fun onStop() { stop() }
+                override fun onSeekTo(pos: Long) { seekTo(pos.toInt()) }
+            })
+            isActive = true
+        }
+
         val filter = IntentFilter().apply {
             addAction(ACTION_PLAY_PAUSE)
             addAction(ACTION_NEXT)
@@ -94,6 +110,7 @@ class MusicPlayerService : Service() {
             player.start()
             _state.value = MusicPlaybackState.PLAYING
         }
+        updatePlaybackState()
         updateNotification()
     }
 
@@ -111,6 +128,7 @@ class MusicPlayerService : Service() {
 
     fun seekTo(ms: Int) {
         mediaPlayer?.seekTo(ms)
+        updatePlaybackState()
     }
 
     fun getCurrentPositionMs(): Int = mediaPlayer?.currentPosition ?: 0
@@ -162,7 +180,28 @@ class MusicPlayerService : Service() {
         }
         _currentTrack.value = track
         _state.value = MusicPlaybackState.PLAYING
+        updatePlaybackState()
         startForegroundNotification(track.title)
+    }
+
+    private fun updatePlaybackState() {
+        val isPlaying = mediaPlayer?.isPlaying == true
+        val stateBuilder = PlaybackStateCompat.Builder()
+            .setActions(
+                PlaybackStateCompat.ACTION_PLAY or
+                    PlaybackStateCompat.ACTION_PAUSE or
+                    PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackStateCompat.ACTION_STOP or
+                    PlaybackStateCompat.ACTION_SEEK_TO
+            )
+            .setState(
+                if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
+                getCurrentPositionMs().toLong(),
+                1f
+            )
+        mediaSession.setPlaybackState(stateBuilder.build())
     }
 
     private fun broadcastPendingIntent(action: String): PendingIntent {
@@ -192,7 +231,8 @@ class MusicPlayerService : Service() {
             .addAction(playPauseIcon, "Play/Pause", broadcastPendingIntent(ACTION_PLAY_PAUSE))
             .addAction(android.R.drawable.ic_media_next, "Next", broadcastPendingIntent(ACTION_NEXT))
             .setStyle(
-                androidx.media.app.NotificationCompat.MediaStyle()
+                MediaNotificationCompat.MediaStyle()
+                    .setMediaSession(mediaSession.sessionToken)
                     .setShowActionsInCompactView(0, 1, 2)
             )
             .build()
@@ -210,6 +250,7 @@ class MusicPlayerService : Service() {
             mediaPlayer?.release()
         } catch (_: Exception) { }
         mediaPlayer = null
+        try { mediaSession.release() } catch (_: Exception) { }
         try { unregisterReceiver(controlReceiver) } catch (_: Exception) { }
     }
 
