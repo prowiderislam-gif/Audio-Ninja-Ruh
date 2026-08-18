@@ -152,13 +152,16 @@ fun NowPlayingScreen(recordingId: String, source: String = "library", navControl
         context.resources.getIdentifier("logo", "drawable", context.packageName)
     }
 
+    // Explicit route back to the exact source list, instead of relying on
+    // popBackStack (which could land somewhere unexpected depending on how
+    // this screen was reached).
     fun goBackToSource() {
         mediaPlayer?.pause()
         isPlaying = false
-        if (source == "favorites") {
-            navController.popBackStack()
-        } else {
-            navController.popBackStack()
+        val targetRoute = if (source == "favorites") "favorites" else "library"
+        navController.navigate(targetRoute) {
+            popUpTo(targetRoute) { inclusive = true }
+            launchSingleTop = true
         }
     }
 
