@@ -42,6 +42,7 @@ class FloatingBubbleService : Service() {
     private var isDragging = false
 
     private var arcButtons: MutableList<BubbleArcButton> = mutableListOf()
+    private var arcLabels: MutableList<TextView> = mutableListOf()
 
     private var recordingService: RecordingService? = null
     private var recordingBound = false
@@ -74,10 +75,12 @@ class FloatingBubbleService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastKnownState: RecordingState? = null
+    private var lastMusicState: MusicPlaybackState? = null
     private val tickRunnable = object : Runnable {
         override fun run() {
+            autoSyncMode()
             updateBubbleAndBadge()
-            handler.postDelayed(this, 1000)
+            handler.postDelayed(this, 500)
         }
     }
 
@@ -89,8 +92,17 @@ class FloatingBubbleService : Service() {
         playlistRepo = PlaylistRepository(applicationContext)
         addBubble()
         bindService(Intent(this, RecordingService::class.java), recordingConnection, 0)
+        tryBindMusicService()
         loadPinnedPlaylists()
         handler.post(tickRunnable)
+    }
+
+    private fun tryBindMusicService() {
+        if (!musicBound) {
+            try {
+                bindService(Intent(this, MusicPlayerService::class.java), musicConnection, 0)
+            } catch (_: Exception) { }
+        }
     }
 
     private fun loadPinnedPlaylists() {
@@ -103,7 +115,38 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    // ---------- Main bubble (your uploaded image, swaps per mode) ----------
+    /**
+     * Detects real playback/recording activity and keeps the bubble's mode in
+     * sync automatically — no manual toggle needed for this to stay correct.
+     * Recording always wins: if a recording is active, music is stopped and
+     * the bubble switches to Recording mode immediately, regardless of what
+     * was happening before.
+     */
+    private fun autoSyncMode() {
+        val recState = recordingService?.state?.value ?: RecordingState.IDLE
+        val musState = musicService?.state?.value ?: MusicPlaybackState.IDLE
+
+        if (recState == RecordingState.RECORDING || recState == RecordingState.PAUSED) {
+            if (currentMode != BubbleMode.RECORDING) {
+                currentMode = BubbleMode.RECORDING
+                refreshBubbleImage()
+                collapseMenu()
+            }
+            if (lastMusicState != MusicPlaybackState.IDLE && musState != MusicPlaybackState.IDLE) {
+                musicService?.stop()
+            }
+        } else if (musState == MusicPlaybackState.PLAYING || musState == MusicPlaybackState.PAUSED) {
+            if (currentMode != BubbleMode.MUSIC) {
+                currentMode = BubbleMode.MUSIC
+                refreshBubbleImage()
+                collapseMenu()
+                loadPinnedPlaylists()
+            }
+        }
+        lastMusicState = musState
+    }
+
+    // ---------- Main bubble ----------
 
     private fun refreshBubbleImage() {
         val name = if (currentMode == BubbleMode.MUSIC) "music_mode_bubble" else "record_mode_bubble"
@@ -292,8 +335,14 @@ class FloatingBubbleService : Service() {
 
         arcButtons.forEach { it.hide() }
         arcButtons.clear()
+        arcLabels.forEach { try { windowManager.removeView(it) } catch (_: Exception) { } }
+        arcLabels.clear()
 
         val radius = 260
+        // Angles chosen so the arc always bows INTO the screen: pointing right
+        // (positive cos) when the bubble sits on the left edge, and pointing
+        // left (negative cos) when it sits on the right edge. Offsets are
+        // always added directly — no sign-flipping needed.
         val angles = if (onLeftEdge)
             listOf(-60.0, -20.0, 20.0, 60.0)
         else
@@ -316,20 +365,66 @@ class FloatingBubbleService : Service() {
             val actualDrawable = if (drawableName == "playlist_slot") "playlist${index + 1}_key" else drawableName
 
             val button = BubbleArcButton(this, windowManager, actualDrawable, sizePx = 130)
-            val targetX = bubbleCenterX + (if (onLeftEdge) offsetX else -offsetX)
+            val targetX = bubbleCenterX + offsetX
             val targetY = bubbleCenterY + offsetY
 
             button.show(targetX, targetY) {
                 handleArcButtonTap(drawableName, index)
             }
             arcButtons.add(button)
+
+            // Real playlist name overlay, so the bubble shows what you named
+            // it in the app instead of a generic "Playlist 1/2/3" label.
+            if (drawableName == "playlist_slot") {
+                val playlistName = pinnedPlaylists.getOrNull(index)?.name ?: "Playlist ${index + 1}"
+                addPlaylistLabel(playlistName, targetX, targetY)
+            }
         }
+    }
+
+    private fun addPlaylistLabel(name: String, centerX: Int, centerY: Int) {
+        val labelBg = GradientDrawable().apply {
+            cornerRadius = 20f
+            setColor(Color.parseColor("#CC000000"))
+        }
+        val label = TextView(this).apply {
+            text = if (name.length > 12) name.take(11) + "…" else name
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            background = labelBg
+            setPadding(12, 3, 12, 3)
+            maxLines = 1
+        }
+
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = centerX - 90
+            y = centerY + 65
+        }
+
+        try {
+            windowManager.addView(label, params)
+            arcLabels.add(label)
+        } catch (_: Exception) { }
     }
 
     private fun collapseMenu() {
         isMenuExpanded = false
         arcButtons.forEach { it.hide() }
         arcButtons.clear()
+        arcLabels.forEach { try { windowManager.removeView(it) } catch (_: Exception) { } }
+        arcLabels.clear()
     }
 
     private fun handleArcButtonTap(drawableName: String, index: Int) {
@@ -352,10 +447,16 @@ class FloatingBubbleService : Service() {
                 collapseMenu()
             }
             currentMode == BubbleMode.RECORDING && drawableName == "music_switch_key" -> {
-                switchToMusicMode()
+                currentMode = BubbleMode.MUSIC
+                refreshBubbleImage()
+                collapseMenu()
+                loadPinnedPlaylists()
             }
             currentMode == BubbleMode.MUSIC && drawableName == "record_switch_key" -> {
-                switchToRecordingMode()
+                currentMode = BubbleMode.RECORDING
+                refreshBubbleImage()
+                collapseMenu()
+                musicService?.stop()
             }
             currentMode == BubbleMode.MUSIC && drawableName == "playlist_slot" -> {
                 playPinnedPlaylist(index)
@@ -364,24 +465,10 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    private fun switchToMusicMode() {
-        currentMode = BubbleMode.MUSIC
-        refreshBubbleImage()
-        collapseMenu()
-        loadPinnedPlaylists()
-    }
-
-    private fun switchToRecordingMode() {
-        currentMode = BubbleMode.RECORDING
-        refreshBubbleImage()
-        collapseMenu()
-        musicService?.stop()
-    }
-
     private fun playPinnedPlaylist(index: Int) {
         val playlist = pinnedPlaylists.getOrNull(index) ?: return
         val intent = Intent(this, MusicPlayerService::class.java)
-        bindService(intent, musicConnection, 0)
+        tryBindMusicService()
         startForegroundService(intent)
         handler.postDelayed({
             musicService?.playPlaylist(playlist)
@@ -475,7 +562,9 @@ class FloatingBubbleService : Service() {
             timestampBadge?.visibility = View.GONE
             return
         }
-        val elapsedMs = (System.currentTimeMillis() - svc.getStartTimeMs()).coerceAtLeast(0)
+        // Uses the same pause-aware getElapsedMs() the app screen reads, so
+        // the two timers can never drift apart, including across pause/resume.
+        val elapsedMs = svc.getElapsedMs()
         val totalSeconds = elapsedMs / 1000
         val m = (totalSeconds % 3600) / 60
         val s = totalSeconds % 60
