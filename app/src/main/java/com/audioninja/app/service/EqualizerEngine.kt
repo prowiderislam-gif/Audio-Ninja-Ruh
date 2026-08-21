@@ -26,7 +26,8 @@ class EqualizerEngine(audioSessionId: Int) {
             val eq = Equalizer(0, audioSessionId)
             bands = eq.numberOfBands.toInt()
             freqs = (0 until bands).map { eq.getCenterFreq(it.toShort()) / 1000 }
-            range = eq.bandLevelRange
+            val shortRange: ShortArray = eq.bandLevelRange
+            range = intArrayOf(shortRange[0].toInt(), shortRange[1].toInt())
             equalizer = eq
         } catch (_: Exception) { }
         try {
