@@ -76,7 +76,7 @@ fun AudioNinjaMainScreen() {
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* result not needed here; notifications just won't show if denied */ }
+    ) { }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -121,7 +121,7 @@ fun AudioNinjaMainScreen() {
             composable(Screen.Record.route) { RecordScreen(navController = navController) }
             composable(Screen.Library.route) { LibraryScreen(navController) }
             composable(Screen.Favorites.route) { LibraryScreen(navController, favoritesOnly = true) }
-            composable(Screen.Settings.route) { SettingsScreen() }
+            composable(Screen.Settings.route) { SettingsScreen(navController = navController) }
             composable(
                 "nowPlaying/{recordingId}?source={source}",
                 arguments = listOf(
@@ -153,6 +153,7 @@ fun AudioNinjaMainScreen() {
                 val trackId = backStackEntry.arguments?.getString("trackId") ?: ""
                 PlaylistPlayerScreen(playlistId = playlistId, trackId = trackId, navController = navController)
             }
+            composable("equalizer") { EqualizerScreen(navController) }
         }
     }
 }
