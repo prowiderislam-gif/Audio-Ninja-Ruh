@@ -6,10 +6,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
@@ -24,11 +29,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 enum class MusicPlaybackState { IDLE, PLAYING, PAUSED }
 
-/**
- * Plays tracks from a Playlist. Uses a real MediaSession so the notification
- * renders with the system's standard, bigger media-control buttons instead of
- * small custom icons — the same style Spotify/YouTube Music use.
- */
 class MusicPlayerService : Service() {
 
     private val binder = LocalBinder()
@@ -49,6 +49,16 @@ class MusicPlayerService : Service() {
 
     private val _currentPlaylistName = MutableStateFlow<String?>(null)
     val currentPlaylistName: StateFlow<String?> = _currentPlaylistName
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val positionTickRunnable = object : Runnable {
+        override fun run() {
+            if (mediaPlayer?.isPlaying == true) {
+                updatePlaybackState()
+            }
+            handler.postDelayed(this, 1000)
+        }
+    }
 
     inner class LocalBinder : Binder() {
         fun getService(): MusicPlayerService = this@MusicPlayerService
@@ -88,6 +98,7 @@ class MusicPlayerService : Service() {
             addAction(ACTION_STOP)
         }
         ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        handler.post(positionTickRunnable)
     }
 
     fun playPlaylist(playlist: Playlist, startTrackId: String? = null) {
@@ -146,6 +157,7 @@ class MusicPlayerService : Service() {
     }
 
     fun stop() {
+        handler.removeCallbacks(positionTickRunnable)
         try {
             mediaPlayer?.stop()
             mediaPlayer?.release()
@@ -180,8 +192,35 @@ class MusicPlayerService : Service() {
         }
         _currentTrack.value = track
         _state.value = MusicPlaybackState.PLAYING
+        updateMetadata(track)
         updatePlaybackState()
         startForegroundNotification(track.title)
+    }
+
+    /** Loads the correct artwork: the track's own cover if it has one, else the app logo. */
+    private fun loadArtworkBitmap(track: PlaylistTrack): Bitmap? {
+        return try {
+            if (track.coverPath != null) {
+                BitmapFactory.decodeFile(track.coverPath)
+            } else {
+                val resId = resources.getIdentifier("logo", "drawable", packageName)
+                if (resId != 0) BitmapFactory.decodeResource(resources, resId) else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun updateMetadata(track: PlaylistTrack) {
+        val artwork = loadArtworkBitmap(track)
+        val builder = MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentPlaylistName.value ?: "Audio Ninja")
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, getDurationMs().toLong())
+        if (artwork != null) {
+            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, artwork)
+        }
+        mediaSession.setMetadata(builder.build())
     }
 
     private fun updatePlaybackState() {
@@ -219,11 +258,14 @@ class MusicPlayerService : Service() {
 
         val isPlaying = mediaPlayer?.isPlaying == true
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        val track = _currentTrack.value
+        val largeIcon = track?.let { loadArtworkBitmap(it) }
 
         val notification = NotificationCompat.Builder(this, AudioNinjaApp.RECORDING_CHANNEL_ID)
-            .setContentTitle(currentPlaylistName.value ?: "Audio Ninja")
-            .setContentText(trackTitle)
+            .setContentTitle(trackTitle)
+            .setContentText(currentPlaylistName.value ?: "Audio Ninja")
             .setSmallIcon(android.R.drawable.presence_audio_online)
+            .apply { if (largeIcon != null) setLargeIcon(largeIcon) }
             .setContentIntent(contentPendingIntent)
             .setOngoing(false)
             .setDeleteIntent(broadcastPendingIntent(ACTION_STOP))
@@ -246,6 +288,7 @@ class MusicPlayerService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacks(positionTickRunnable)
         try {
             mediaPlayer?.release()
         } catch (_: Exception) { }
