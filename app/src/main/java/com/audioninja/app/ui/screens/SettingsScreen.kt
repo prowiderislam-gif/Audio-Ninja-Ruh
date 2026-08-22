@@ -6,11 +6,14 @@ import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 import com.audioninja.app.StoragePermissionActivity
 import com.audioninja.app.data.RecordingRepository
 import com.audioninja.app.data.SettingsRepository
@@ -20,7 +23,7 @@ import com.audioninja.app.ui.theme.NeonRed
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(navController: NavController? = null) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository(context) }
     val recordingRepo = remember { RecordingRepository(context) }
@@ -32,6 +35,7 @@ fun SettingsScreen() {
     val recordMicWithInternal by repo.recordMicWithInternal.collectAsState(initial = false)
     val autoKeepBackground by repo.autoKeepBackground.collectAsState(initial = true)
     val floatingBubbleEnabled by repo.floatingBubbleEnabled.collectAsState(initial = false)
+    val trimStartupSilence by repo.trimStartupSilence.collectAsState(initial = true)
 
     var showOverlayPermissionNote by remember { mutableStateOf(false) }
     var storageGranted by remember { mutableStateOf(recordingRepo.canWriteToPublicStorage()) }
@@ -43,6 +47,17 @@ fun SettingsScreen() {
             Text("Settings", style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.height(16.dp))
 
+            Button(
+                onClick = { navController?.navigate("equalizer") },
+                colors = ButtonDefaults.buttonColors(containerColor = NeonRed),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Equalizer")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
             Text("Recording Format", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -72,6 +87,12 @@ fun SettingsScreen() {
                 sublabel = "Layer your mic over internal audio (off = internal audio only)",
                 checked = recordMicWithInternal,
                 onCheckedChange = { scope.launch { repo.setRecordMicWithInternal(it) } }
+            )
+            SettingsSwitchRow(
+                label = "Trim Startup Silence",
+                sublabel = "Automatically cuts silent dead air from the start of new recordings",
+                checked = trimStartupSilence,
+                onCheckedChange = { scope.launch { repo.setTrimStartupSilence(it) } }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
